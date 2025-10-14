@@ -1,5 +1,11 @@
 # Neural networks from first principles, Micrograd Elixir
 
+```elixir
+Mix.install([
+  {:kino, "~> 0.17.0"}
+])
+```
+
 ## Introduction
 
 Neural networks are these seeminly magically processes that can be applied to a huge array of problems and achieve a passable result. It raises the question though, how do they actually work? What are the fundamentals that we need to understand so that we can build up our knowledge from first principles to then comprehend how more complicated architectures like LLMs work.
@@ -163,4 +169,85 @@ defmodule Math do
 end
 
 Math.mul(two, three, "six")
+```
+
+With the `Math` module we can now create mathematical expressions which we can use to view the computational graphs. What we want to produce programmtically is this with the values of each filled in, and further along the gradients as well.
+
+```mermaid
+---
+config:
+  look: handDrawn
+  theme: natural
+---
+flowchart LR
+x --> multiply
+y --> multiply
+multiply --> add
+z --> add
+add --> result
+```
+
+```elixir
+x = Value.new(2, "x")
+y = Value.new(3, "y")
+z = Value.new(4, "z")
+
+result = Math.mul(x, y, "x*y") |> Math.add(z, "result")
+```
+
+Here we can see the final result of the $x \times y + z$ function is `10`, and we can see all of the intermediate values along the way right back to the intital values.
+
+But this is already not that nice to read and these expressions will only become more complicated, so we will also need a `Mermaid` module to visualize the computational graph in an easier way.
+
+Note: it's not essential to understand this module so feel free to skip over. Also worth noting that this approach will stop working once our computational graphs become sufficiently complicated, but at that stage a full graphic may begin to loses its value.
+
+```elixir
+defmodule Mermaid do
+  def render_value(value, grad_map \\ %{}) do
+    """
+    ---
+    config:
+      theme: neutral
+    ---
+    flowchart LR
+    #{to_mermaid(value, grad_map)}
+    """
+    |> Kino.Mermaid.new()
+  end
+
+  defp to_mermaid(nil, _grad_map), do: ""
+
+  defp to_mermaid(%{children: []} = value, grad_map) do
+    value_node(value, grad_map)
+  end
+
+  defp to_mermaid(%{children: children, op: op} = value, grad_map) do
+    children_ids = Enum.reduce(children, "", & &2 <> to_string(&1.id))
+    operator_node_id = "#{children_ids}#{op}"
+
+    """
+    #{
+      for child <- children, reduce: "" do
+        acc ->
+         acc <> "\n #{to_mermaid(child, grad_map)} --> #{operator_node_id}[#{op}]"
+      end
+    }
+    #{operator_node_id}[#{op}] --> #{value_node(value, grad_map)}
+    """
+  end
+
+  defp value_node(%{id: id, data: data, label: label}, grad_map) do
+    """
+    #{id}[#{label}
+    data: #{data}
+    grad: #{Map.get(grad_map, id, "")}]
+    """
+  end
+end
+```
+
+With this we can now view our result `Value` from before and see the full computational graph. We will fill in the `grad` field in the graph in the next section.
+
+```elixir
+Mermaid.render_value(result)
 ```
