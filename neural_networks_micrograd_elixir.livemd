@@ -1,0 +1,166 @@
+# Neural networks from first principles, Micrograd Elixir
+
+## Introduction
+
+Neural networks are these seeminly magically processes that can be applied to a huge array of problems and achieve a passable result. It raises the question though, how do they actually work? What are the fundamentals that we need to understand so that we can build up our knowledge from first principles to then comprehend how more complicated architectures like LLMs work.
+
+In this livebook we will build a neural network from scratch using Elixir, a functional programming language, following along the [brilliant video by Andrej Karpathy](https://www.youtube.com/watch?v=VMj-3S1tku0) where he creates micrograd from scratch in Python. Full credit goes to him for creating the material.
+
+## What are we building
+
+Neural networks able to approximate functions by adjusting the paramaters in the network based on training data.
+
+As a contrived example, we can approximate the result of this mathematical function by giving a small network the input $x$ and result values to learn from.
+
+$$
+sin(4x) * cos(5x)
+$$
+
+We can see an illustration where the network is begins randomly guessing values for $x$ but over time improves it's answer and gets closer and closer to the actual result. (Note: this is example is "overfitting" the training data, which is something to be avoided in a real example).
+
+There are all kinds of libraries (e.g. TensorFlow, PyTorch, Nx, Axon) that give us the tools to build and scale these networks. But if we want to understand them from first principles so that we can have an intuitive sense of what is going on, we don't need to reach for tensors and linear algebra right away. We can build a functional neural network using just straight foward Elixir.
+
+### A functional approach
+
+This Livebook departs in the implementation to demostrate how a neural network can be expressed with a functional language, and how it can result in code that is easier to reason about since the pure functions are explicit at every step along the way.
+
+## Step 1: A computational graph
+
+The great news is the mathematical concepts and formulas we need to understand can be built up from high school level math. Primarily we need basic arthimatic, and certain parts of calculus.
+
+We can think of a neural network as a computational graph which takes a list of numbers and handles the various mathematical operations to produce a list of numbers as an output.
+
+For example, say we wanted to show $2 \times 3 = 6$ as a simple computational graph it would look like this, where it takes in a list containing `2` and `3` as inputs, and produces the output of `6`.
+
+```mermaid
+---
+config:
+  look: handDrawn
+  theme: forest
+---
+flowchart LR
+2 --> multiply
+3 --> multiply
+multiply --> 6
+```
+
+In Elixir we can complete mathematical operations in the language as with simple code
+
+```elixir
+2 * 3
+```
+
+Instead of working with raw numbers (integers and floats) we will instead wrap those in a `%Value{}` [struct](https://hexdocs.pm/elixir/structs.html). This will allow us to store the intermediary values to keep track of the calculation we are running.
+
+The `Value` will hold information about a number in the computational graph:
+
+* `data`: the underlying value
+* `op`: which mathematical operation created the `Value`. May be `nil` for inputs
+* `children`: the `Value` instances used to create this value
+* `label`: used to store the name of the variable to be rendered in the Mermaid diagram
+* `id`: used when creating the Mermaid diagram
+
+We define a struct with the `defstruct` construct which lists the fields. All we really _need_ to define is:
+
+<!-- livebook:{"force_markdown":true} -->
+
+```elixir
+defmodule Value do
+  defstruct [:data, :op, :children, :label, :id]
+end
+```
+
+However we don't want to be concerned about creating the value for `id` for the diagrams as we move further into the livebook so we'll include a `new/2` function as well.
+
+If you've been following along with Andrej Karpathy's course you may have noticed the `grad` field is missing from `Value`. This has been intentionally left out since we'll be taking a slightly different implementation with functional programming, which will be explained in more detail further along.
+
+```elixir
+defmodule Value do
+  defstruct [:data, :op, :label, :id, children: []]
+
+  def new(data, label, children \\ [], op \\ nil) do
+    %__MODULE__{
+      data: data,
+      children: children,
+      op: op,
+      label: label,
+      id: :erlang.unique_integer([:monotonic, :positive])
+    }
+  end
+end
+
+Value.new(2, "x")
+```
+
+Given these values we can start to make a computational graph like the one we've drawn:
+
+```elixir
+two = Value.new(2, "two")
+three = Value.new(3, "three")
+
+Value.new(two.data * three.data, "six", [two, three])
+```
+
+We also need a way to perform operations on the values so can build up mathimatical functions with our new date model.
+
+We'll create a `Math` module to implement the operations that we will need. You'll notice the `data` field is created using the usual Elixir/Erlang functions to create the values and the rest of the function is building up the metadata for us to use later.
+
+```elixir
+defmodule Math do
+  def add(value_one, value_two, label) do
+    Value.new(
+      value_one.data + value_two.data,
+      label,
+      [value_one, value_two],
+      :add
+    )
+  end
+
+  def mul(value_one, value_two, label) do
+    Value.new(
+      value_one.data * value_two.data,
+      label,
+      [value_one, value_two],
+      :mul
+    )
+  end
+
+  def sum(values, label) do
+    Value.new(
+      Enum.reduce(values, 0.0, & &1.data + &2),
+      label,
+      values,
+      :sum
+    )
+  end
+
+  def pow(value, exp, label) do
+    Value.new(
+      :math.pow(value.data, exp.data),
+      label,
+      [value, exp],
+      :pow
+    )
+  end
+
+  def tanh(value, label) do
+    Value.new(
+      :math.tanh(value.data),
+      label,
+      [value],
+      :tanh
+    )
+  end
+
+  def relu(value, label) do
+    Value.new(
+      Enum.max([value.data, 0]),
+      label,
+      [value],
+      :relu
+    )
+  end
+end
+
+Math.mul(two, three, "six")
+```
