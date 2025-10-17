@@ -1,3 +1,5 @@
+<!-- livebook:{"file_entries":[{"name":"training_demo_1.gif","type":"attachment"}]} -->
+
 # Neural networks from first principles, Micrograd Elixir
 
 ```elixir
@@ -23,6 +25,8 @@ sin(4x) * cos(5x)
 $$
 
 We can see an illustration where the network is begins randomly guessing values for $x$ but over time improves it's answer and gets closer and closer to the actual result. (Note: this is example is "overfitting" the training data, which is something to be avoided in a real example).
+
+<img src="files/training_demo_1.gif" alt="A small neural network being trained to approximate the sin(4x) * cos(5x) function" width="500" />
 
 There are all kinds of libraries (e.g. TensorFlow, PyTorch, Nx, Axon) that give us the tools to build and scale these networks. But if we want to understand them from first principles so that we can have an intuitive sense of what is going on, we don't need to reach for tensors and linear algebra right away. We can build a functional neural network using just straight foward Elixir.
 
