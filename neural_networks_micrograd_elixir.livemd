@@ -1,10 +1,12 @@
-<!-- livebook:{"file_entries":[{"name":"training_demo_1.gif","type":"attachment"}]} -->
+<!-- livebook:{"file_entries":[{"name":"gradient.gif","type":"attachment"},{"name":"training_demo_1.gif","type":"attachment"}]} -->
 
 # Neural networks from first principles, Micrograd Elixir
 
 ```elixir
 Mix.install([
-  {:kino, "~> 0.17.0"}
+  {:kino, "~> 0.17.0"},
+  {:tucan, "~> 0.5.0"},
+  {:kino_vega_lite, "~> 0.1.13"}
 ])
 ```
 
@@ -211,7 +213,7 @@ defmodule Mermaid do
     """
     ---
     config:
-      theme: neutral
+      theme: base
     ---
     flowchart LR
     #{to_mermaid(value, grad_map)}
@@ -254,4 +256,328 @@ With this we can now view our result `Value` from before and see the full comput
 
 ```elixir
 Mermaid.render_value(result)
+```
+
+We can use the computational graph to move forwards through the calculation, but we also want to be able to move backwards and determine the gradient for each value.
+
+## Calculus
+
+In order to train neural networks we need to understand the impact of various parts of the calculation so that we can then adjust them accordingly.
+
+The two best sources I found on building an understanding of calculus are:
+
+1. **The essence of calculus** series on youtube by 3Blue1Brown, and
+2. **Calculus Made Easy** by Silvanus P. Thompson, first published in 1910 (free pdf copies can be found online)
+
+This quote from *Calculus made easy* explains the first part of what we are looking to get from calculus:
+
+> $d$ which merely means “a little bit of.”
+> Thus $dx$ means a little bit of $x$; or $du$ means a little bit of $u$. Ordinary mathematicians think it more polite to say “an element of,”
+> instead of “a little bit of.” Just as you please. But you will find that
+> these little bits (or elements) may be considered to be indefinitely small.
+
+So we want to look at our calculations and observe what happens when we nudge them by just a little bit. The second part we want to consider is highlighted in this quote:
+
+> Moreover, we are usually dealing with more than one variable at once, and thinking of the way in which one variable depends on the other: ... Or we are asked to consider a rectangle of given area, and to enquire how any increase in the length of it will compel a corresponding decrease in the breadth of it. Or we think of the way in which any variation in the slope of a ladder will cause the height that it reaches, to vary.
+> 
+> Suppose we have got two such variables that depend one on the other. An alteration in one will bring about an alteration in the other, because of this dependence.
+
+So with this we can think:
+
+1. We have a computational graph with multiple variable that are dependent on each other, if $x$ increases in value,
+
+Then, with the small parts we want to measure that change the occurs to the overall equation. (Here I would highly recommend a detour to the essence of calculus.)
+
+When building neural networks we don't go through the full process of deriving the derivative since it would be an expression with tens of thousands of terms. Instead, we just want an understanding of that the derivative is, and why it's useful in the context of building these networks.
+
+If we start with a function that takes single variable input: $3 \times x^2 - 4 \times x + 5 $ which we can visualize on as a parabola on a graph:
+
+```elixir
+f = fn x -> x**2 end
+
+f.(3)
+```
+
+And with this function calculate the values for $x$ between -5 and 5 with 0.25 steps:
+
+```elixir
+xs =
+  Enum.map(
+    -20..20,
+    & %{x: &1 / 4, y: f.(&1 / 4), type: "curve"}
+  )
+
+Tucan.lineplot(xs, "x", "y")
+```
+
+We can then look to find the derivative by looking at the gradient of the slope an any point along this graph. This is commonly referred to as the _"instantanous rate of change"_, but as Grant points out in the Essence of Calculus, this is a paradox. Can something change is we look at it as a snapshot in single moment of time?
+
+It's more helpful to think of this is how much does it change by between two very very close points in time. Or in this example, how much it change if we made $x$ just a tiny little bit bigger, say by `0.000001`.
+
+That is is what this defintion form wikipedia is saying, as $h$ gets closer and closer to zero what is the impact on the output.
+
+$$
+\lim_{h \to 0} \frac{f(x + h) - f(x)}{h}
+$$
+
+Which we can write out as:
+
+```elixir
+h = 0.000001
+x = 3
+
+(f.(x + h) - f.(x)) / h
+```
+
+We can visualize the gradient as a sloping line at that point on the parabola, with different values for $x$ resulting in different gradients, or "slopes".
+
+<img src="files/gradient.gif" alt="drawing" width="500" />
+
+<details>
+  <summary>Code to create animated graphic</summary>
+  
+```elixir
+init_x = -15
+
+calc_grad = fn x -> (f.(x + h) - f.(x)) / h end
+
+gen_tangent = fn x ->
+  grad = calc_grad.(x)
+  
+  Enum.map(
+    -1..1,
+    & %{x: x + &1, y: f.(x) + grad * ((x + &1) - x), type: "tangent"}
+  )
+end
+
+animated_gradient =
+  VegaLite.new(width: 400, height: 400)
+  |> VegaLite.param(
+    "xTitle",
+    value: "Gradient is #{Float.floor(calc_grad.(init_x/4), 7)} when x is #{init_x}"
+  )
+  |> VegaLite.encode_field(:x, "x", type: :quantitative, title: [signal: "xTitle"])
+  |> VegaLite.datasets_from_values(
+    curve: xs,
+    tangent: gen_tangent.(init_x)
+  )
+  |> VegaLite.layers([
+    VegaLite.new()
+    |> VegaLite.data(name: "curve")
+    |> VegaLite.mark(:line, color: "steelblue")
+    |> VegaLite.encode_field(:x, "x", type: :quantitative)
+    |> VegaLite.encode_field(:y, "y", type: :quantitative),
+    
+    VegaLite.new()
+    |> VegaLite.data(name: "tangent")
+    |> VegaLite.mark(:line, color: "red")
+    |> VegaLite.encode_field(:x, "x", type: :quantitative)
+    |> VegaLite.encode_field(:y, "y", type: :quantitative)
+  ])
+  |> Kino.VegaLite.new()
+  |> Kino.render()
+
+for i <- -15..15 do
+  Kino.VegaLite.clear(animated_gradient, dataset: "tangent")
+
+  Enum.each(
+    gen_tangent.(i/4),
+    &Kino.VegaLite.push(animated_gradient, &1, dataset: "tangent")
+  )
+
+  Kino.VegaLite.set_param(
+    animated_gradient,
+    "xTitle",
+    "Gradient is #{Float.floor(calc_grad.(i/4), 7)} when x is #{i/4}"
+  )
+  
+  Process.sleep(100)
+end
+
+:ok
+```
+</details>
+
+<!-- livebook:{"break_markdown":true} -->
+
+We can use this with functions that take multiple variables as well to calculate the gradients for the individual variables.
+
+```elixir
+x = 8
+y = 10
+z = 4
+
+h = 0.0000000001
+
+d1 = x * y + z
+d2 = (x + h) * y + z
+
+x_grad = (d2 - d1) / h
+
+d2 = x * (y + h) + z
+
+y_grad = (d2 - d1) / h
+
+d2 = x * y + (z + h)
+
+z_grad = (d2 - d1) / h
+
+IO.write("""
+gradient of x: #{x_grad}
+gradient of y: #{y_grad}
+gradient of z: #{z_grad}
+""")
+```
+
+#### Chain rule
+
+$\frac{dz}{dx} = \frac{dz}{dy} . \frac{dy}{dx}$
+
+> Intuitively, the chain rule states that knowing the instantaneous rate of change of z relative to y and that of y relative to x allows one to calculate the instantaneous rate of change of z relative to x as the product of the two rates of change.
+> 
+> If a car travels twice as fast as a bicycle and the bicycle is four times as fast as a walking man, then the car travels 2 × 4 = 8 times as fast as the man.
+
+[Wikipedia Chain Rule](https://en.wikipedia.org/wiki/Chain_rule)
+
+<!-- livebook:{"break_markdown":true} -->
+
+With this knowledge we can now create a `Grad` module that takes in a `Value` and determines the gradients of it's children, i.e. the values that created the one passed in.
+
+So for example if we had this simplifed value:
+
+<!-- livebook:{"force_markdown":true} -->
+
+```elixir
+%Value{
+  id: 3,
+  op: :mul,
+  data: 50,
+  children:[
+    %Value{data: 5, id: 1},
+    %Value{data: 10, id: 2}
+  ]
+}
+```
+
+The `Grad` module can automatically determine the gradients of each child and return them with their IDs:
+
+<!-- livebook:{"force_markdown":true} -->
+
+```elixir
+[{1, 10}, {2, 5}]
+```
+
+Note: the use of the term children here can be since really, these are the parent values that created the Value being passed in. I believe Andrej will have used the term children since the final value of the calculation is effectively the root node in the graph, and the previous values branch away as it's child nodes. I've left the name the same here to make it easier to compare back to the original micrograd library.
+
+```elixir
+defmodule Grad do
+  def calculate(%Value{op: :add, children: [left, right]}, value_grad) do
+    [
+      {left.id, value_grad},
+      {right.id, value_grad}
+    ]
+  end
+
+  def calculate(%Value{op: :sum, children: children}, value_grad) do
+    Enum.map(children, & {&1.id, value_grad})
+  end
+
+  def calculate(%Value{op: :mul, children: [left, right]}, value_grad) do
+    [
+      {left.id, right.data * value_grad},
+      {right.id, left.data * value_grad}
+    ]
+  end
+
+  def calculate(%Value{op: :pow, children: [child, exp]}, value_grad) do
+    [
+      {child.id, (exp.data * child.data ** (exp.data - 1)) * value_grad}
+    ]
+  end
+
+  def calculate(%Value{op: :tanh, children: [child], data: data}, value_grad) do
+    [
+      {child.id, (1 - data ** 2) * value_grad}
+    ]
+  end
+
+  def calculate(%Value{op: :relu, children: [child], data: data}, value_grad) do
+    grad = if data > 0, do: value_grad, else: 0
+    
+    [{child.id, grad}]
+  end
+
+  # catch values without children, i.e. intital inputs
+  def calculate(%Value{op: nil}, _), do: []
+end
+```
+
+We can now use this to calculate the gradients for our example above:
+
+```elixir
+left = Value.new(10, "left")
+right = Value.new(5, "left")
+result = Math.mul(left, right, "result")
+
+# Assume the current gradient of result is 1
+Grad.calculate(result, 1)
+```
+
+This here is one major departure from the original implementation of Micrograd. In python we can add a backward function on the instance of the `Value` class and then call it to determine the gradients, then updating the state on the instances to keep track of the gradient.
+
+Given our functional approach we don't have the ability to mutate the data. Our `Value` "instances" are just immutable key-value maps underneath which we can't modify. While we could create a new value with the gradient set, it wouldn't work when we're updating the gradient on a deeply nested child in the large computational graphs we are going to be building.
+
+Instead, we'll take a more common functional approach and keep a separate data structure where we can lookup the gradient for any value by its `id`.
+
+```elixir
+defmodule Backward do
+  def compute_gradients(value) do
+    {nodes, _} = topographic_sort(value, [], MapSet.new())
+
+    Enum.reduce(
+      nodes,
+      %{value.id => 1.0},
+      &gradients_for_node/2
+    )
+  end
+
+  defp topographic_sort(nil, acc, visited) do
+    {acc, visited}
+  end
+  
+  defp topographic_sort(node, acc, visited) do
+    if MapSet.member?(visited, node) do
+      {acc, visited}
+    else
+      {acc, visited} = 
+        Enum.reduce(
+          node.children,
+          {acc, MapSet.put(visited, node)},
+          fn child, {a, v} -> topographic_sort(child, a, v) end
+        )
+      
+      {[node | acc], visited}
+    end
+  end
+
+  defp gradients_for_node(node, grad_map) do
+    node_grad = Map.get(grad_map, node.id, 0.0)
+    child_grads = Grad.calculate(node, node_grad)
+
+    for {child_id, grad} <- child_grads, reduce: grad_map do
+      acc ->
+        Map.update(acc, child_id, grad, &(&1 + grad))
+    end
+  end
+end
+```
+
+```elixir
+grad_map = Backward.compute_gradients(result)
+```
+
+Now that we have the gradients for each of the values we can pass that to `Mermaid.render_value/2` as the second arguement so we can view the gradients in our diagram as well.
+
+```elixir
+Mermaid.render_value(result, grad_map)
 ```
