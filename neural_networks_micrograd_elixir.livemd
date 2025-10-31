@@ -101,14 +101,14 @@ defmodule Value do
   end
 end
 
-Value.new(2, "x")
+Value.new(2.0, "x")
 ```
 
 Given these values we can start to make a computational graph like the one we've drawn:
 
 ```elixir
-two = Value.new(2, "two")
-three = Value.new(3, "three")
+two = Value.new(2.0, "two")
+three = Value.new(3.0, "three")
 
 Value.new(two.data * three.data, "six", [two, three])
 ```
@@ -194,9 +194,9 @@ add --> result
 ```
 
 ```elixir
-x = Value.new(2, "x")
-y = Value.new(3, "y")
-z = Value.new(4, "z")
+x = Value.new(2.0, "x")
+y = Value.new(3.0, "y")
+z = Value.new(4.0, "z")
 
 result = Math.mul(x, y, "x*y") |> Math.add(z, "result")
 ```
@@ -246,7 +246,7 @@ defmodule Mermaid do
     """
     #{id}[#{label}
     data: #{data}
-    grad: #{Map.get(grad_map, id, "")}]
+    grad: #{Map.get(grad_map, id, 0.0)}]
     """
   end
 end
@@ -515,12 +515,12 @@ end
 We can now use this to calculate the gradients for our example above:
 
 ```elixir
-left = Value.new(10, "left")
-right = Value.new(5, "left")
+left = Value.new(10.0, "left")
+right = Value.new(5.0, "left")
 result = Math.mul(left, right, "result")
 
 # Assume the current gradient of result is 1
-Grad.calculate(result, 1)
+Grad.calculate(result, 1.0)
 ```
 
 This here is one major departure from the original implementation of Micrograd. In python we can add a backward function on the instance of the `Value` class and then call it to determine the gradients, then updating the state on the instances to keep track of the gradient.
@@ -580,4 +580,76 @@ Now that we have the gradients for each of the values we can pass that to `Merma
 
 ```elixir
 Mermaid.render_value(result, grad_map)
+```
+
+## A single neuron
+
+If we zoom into a neural network to look at a single neuron we can see they are at conceptually model on a biological neuron. There are many inputs coming from elsewhere in the network and the result of this neuron is passed onwards to others to act as an input there.
+
+So when modelling a single neuron (also called a perceptron) we need to take in multiple values, and return a value as the result.
+
+The learning part of our network then comes from the parameters that are used to calculate the result. Each of the inputs coming into the network have an associated `weight` which is multiplied by. Then we take the results of all of the inputs that have been multiplied by their respective weights and sum them together. This result then has a `bias` added to it before being passed to an `activation` function (e.g. `tanh` or `relu`).
+
+The result of the activation function is the output of this single neuron.
+
+For a simple example that has two inputs, we want to build a computational graph that looks like this:
+
+```mermaid
+---
+config:
+  look: handDrawn
+  theme: natural
+---
+flowchart LR
+input_one --> mul_1[multiply]
+weight_one --> mul_1[multiply]
+mul_1 --> x1w1["result"]
+x1w1 --> sum
+
+input_two --> mul_2[multiply]
+weight_two --> mul_2[multiply]
+mul_2 --> x2w2["result"]
+x2w2 --> sum
+
+sum --> sum_res[result]
+
+sum_res --> add
+
+bias --> add
+
+add --> result
+
+result --> activation
+
+activation --> output
+```
+
+```elixir
+x1 = Value.new(2.0, "x1")
+x2 = Value.new(0.0, "x2")
+
+w1 = Value.new(-3.0, "w1")
+w2 = Value.new(1.0, "w2")
+
+# This specific value is so we get nice gradients further on
+b = Value.new(6.8813735870195432, "b")
+
+x1w1 = Math.mul(x1, w1, "x1*w1")
+x2w2 = Math.mul(x2, w2, "x2*w2")
+
+x1w1x2w2 = Math.add(x1w1, x2w2, "x1*w1+x2*w2")
+
+x1w1x2w2b = Math.add(x1w1x2w2, b, "n")
+
+output = Math.tanh(x1w1x2w2b, "o")
+
+Mermaid.render_value(output)
+```
+
+We can now calculate the gradients for each node in the neuron all the way back to the inputs
+
+```elixir
+grad_map = Backward.compute_gradients(output)
+
+Mermaid.render_value(output, grad_map)
 ```
