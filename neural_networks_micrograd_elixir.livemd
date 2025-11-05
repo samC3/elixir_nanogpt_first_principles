@@ -290,21 +290,25 @@ Then, with the small parts we want to measure that change the occurs to the over
 
 When building neural networks we don't go through the full process of deriving the derivative since it would be an expression with tens of thousands of terms. Instead, we just want an understanding of that the derivative is, and why it's useful in the context of building these networks.
 
-If we start with a function that takes single variable input: $3 \times x^2 - 4 \times x + 5 $ which we can visualize on as a parabola on a graph:
+### A single variable function
+
+Lets start with a simple parabola $y = x^2$. What happens to $y$ if we adjusted $x$ by just a tiny amount?
+
+First we can define the function `fn x -> x**2 end` that we can use to calculate the value for `y`
 
 ```elixir
 f = fn x -> x**2 end
 
-f.(3)
+_y = f.(3)
 ```
 
-And with this function calculate the values for $x$ between -5 and 5 with 0.25 steps:
+And with this function calculate the values for $y$ when $x$ is between -10 and 10:
 
 ```elixir
 xs =
   Enum.map(
-    -20..20,
-    & %{x: &1 / 4, y: f.(&1 / 4), type: "curve"}
+    -10..10,
+    & %{x: &1, y: f.(&1), type: "curve"}
   )
 
 Tucan.lineplot(xs, "x", "y")
@@ -329,115 +333,201 @@ x = 3
 (f.(x + h) - f.(x)) / h
 ```
 
-We can visualize the gradient as a sloping line at that point on the parabola, with different values for $x$ resulting in different gradients, or "slopes".
+Here we can see that when $x = 3$ the _"rate of change"_, or _"gradient"_ of the function when the value is nudged just a little bit it approximately $6$.
 
-<img src="files/gradient.gif" alt="drawing" width="500" />
+If we put that formula into a function and then look at different values of $x$ we can see how the gradient changes for large and smaller values.
 
-<details>
-  <summary>Code to create animated graphic</summary>
-  
 ```elixir
-init_x = -15
+calc_grad = fn x, h -> (f.(x + h) - f.(x)) / h end
 
-calc_grad = fn x -> (f.(x + h) - f.(x)) / h end
+tangent_line =
+  fn x, h ->
+    Enum.map(-2..2, fn i ->
+      grad = calc_grad.(x, h)
+      %{x: x + i, y: f.(x) + grad * ((x + i) - x), type: "tangent"}
+    end)
+  end
 
-gen_tangent = fn x ->
-  grad = calc_grad.(x)
-  
-  Enum.map(
-    -1..1,
-    & %{x: x + &1, y: f.(x) + grad * ((x + &1) - x), type: "tangent"}
+Enum.map([2, 0.4, -3], fn x ->
+  Tucan.lineplot(
+    xs ++ tangent_line.(x, h),
+    "x",
+    "y",
+    color_by: "type",
+    title: "grad is #{Float.round(calc_grad.(x, h), 1)} when x is #{x}"
   )
-end
-
-animated_gradient =
-  VegaLite.new(width: 400, height: 400)
-  |> VegaLite.param(
-    "xTitle",
-    value: "Gradient is #{Float.floor(calc_grad.(init_x/4), 7)} when x is #{init_x}"
-  )
-  |> VegaLite.encode_field(:x, "x", type: :quantitative, title: [signal: "xTitle"])
-  |> VegaLite.datasets_from_values(
-    curve: xs,
-    tangent: gen_tangent.(init_x)
-  )
-  |> VegaLite.layers([
-    VegaLite.new()
-    |> VegaLite.data(name: "curve")
-    |> VegaLite.mark(:line, color: "steelblue")
-    |> VegaLite.encode_field(:x, "x", type: :quantitative)
-    |> VegaLite.encode_field(:y, "y", type: :quantitative),
-    
-    VegaLite.new()
-    |> VegaLite.data(name: "tangent")
-    |> VegaLite.mark(:line, color: "red")
-    |> VegaLite.encode_field(:x, "x", type: :quantitative)
-    |> VegaLite.encode_field(:y, "y", type: :quantitative)
-  ])
-  |> Kino.VegaLite.new()
-  |> Kino.render()
-
-for i <- -15..15 do
-  Kino.VegaLite.clear(animated_gradient, dataset: "tangent")
-
-  Enum.each(
-    gen_tangent.(i/4),
-    &Kino.VegaLite.push(animated_gradient, &1, dataset: "tangent")
-  )
-
-  Kino.VegaLite.set_param(
-    animated_gradient,
-    "xTitle",
-    "Gradient is #{Float.floor(calc_grad.(i/4), 7)} when x is #{i/4}"
-  )
-  
-  Process.sleep(100)
-end
-
-:ok
+end)
+|> Tucan.hconcat()
 ```
-</details>
+
+Here we can see the gradient rendered as a slope on the parabola to visualize the "steepness", i.e. the higher rate of change as $x$ grows larger. Notice that we get a negative slope when $x$ is a negative value.
 
 <!-- livebook:{"break_markdown":true} -->
 
-We can use this with functions that take multiple variables as well to calculate the gradients for the individual variables.
+### Multi variable functions
+
+Say we have a calcualtion that takes three variables instead of one, e.g. $x \times y + z$ we now want to know what happens when $x$, $y$ or $z$ are adjusted just a small amount and how that impacts the result.
+
+Lets create a function so we can calculate the result:
 
 ```elixir
 x = 8
 y = 10
 z = 4
 
-h = 0.0000000001
+f = fn x, y, z -> x * y + z end
 
-d1 = x * y + z
-d2 = (x + h) * y + z
+f.(x, y, z)
+```
 
-x_grad = (d2 - d1) / h
+Now we can increase each variable separately using the same approach above to see the resulting gradient.
 
-d2 = x * (y + h) + z
+```elixir
+h = 0.000000001
 
-y_grad = (d2 - d1) / h
+x_grad = (f.(x + h, y, z) - f.(x, y, z)) / h
+y_grad = (f.(x, y + h, z) - f.(x, y, z)) / h
+z_grad = (f.(x, y, z + h) - f.(x, y, z)) / h
 
-d2 = x * y + (z + h)
-
-z_grad = (d2 - d1) / h
-
-IO.write("""
+IO.write """
 gradient of x: #{x_grad}
 gradient of y: #{y_grad}
 gradient of z: #{z_grad}
-""")
+"""
 ```
+
+We can make some interesting observations about the results of these gradients:
+
+1. The gradient of $z$ is always close to 1 no matter the value
+2. The gradient of $x$ is approximately the value $y$, and vice-versa
+
+#### Addition rule
+
+We can prove this result algebraically. If we have this simple equation where we want to find the derivative of $c$ with respect to $b$, usually written as $\frac{dc}{db}$
+
+$$
+c = a + b
+$$
+
+A small amount called $db$ is added to $b$ and the same is done for $c$ (called $dc$).
+
+$$
+c + dc = a + b + db 
+$$
+
+Our goal is to find the value $\frac{dc}{db}$ so we need to remove the unnesseary values. Since we know $c$ is equal to $a + b$ we can subtract $c$ from the left hand side and $a + b$ from the right hand side to simplify the calculation, which leaves us with:
+
+$$
+dc = db
+$$
+
+We then divide both sides by $db$ to arrive at our answer for $\frac{dc}{db}$, which will be one given $db$ divided by itself is equal to one
+
+$$
+\frac{dc}{db} = 1
+$$
+
+#### Product rule
+
+If we have the same equation but multiplied instead we can prove how the gradient of one variable will be the value of the other. To solve for $\frac{dc}{db}$ for this equation:
+
+$$
+c = a \times b
+$$
+
+We add the small amounts for $b$ and $c$
+
+$$
+c + dc = a \times b + db
+$$
+
+Again, we subtract the original $c = a \times b$ from each side to leave us with:
+
+$$
+dc = a \times db
+$$
+
+Dividing each side by $db$ we get:
+
+$$
+\frac{dc}{db} = a
+$$
+
+If we repeated the process by solving for $\frac{dc}{da}$ we would find that returns $b$ as the result, proving the product rule.
+
+#### Power rule
+
+We can prove the derivative for an exponent following the same process algebraically. Starting with:
+
+$$
+b = a^2
+$$
+
+We add a small amount to $a$ and the correseponding change to $b$
+
+$$
+b + db = (a + da)^2
+$$
+
+Expanding this out we can look at the sqaure of the $a + da$ as it multiplying by itself.
+
+$$
+b + db = (a + da) \times (a + da)
+$$
+
+Which we can expand with the binomial therom:
+
+$$
+b + db = a^2 + (2 \times a \times da) + da^2
+$$
+
+At this point we can ignore $da^2$ since a small, almost zero number multiplied by itself becomes an even smaller number. So its impact on the overall equation is negligable.
+
+$$
+b + db = a^2 + (2 \times a \times da)
+$$
+
+We then subtract the original equation
+
+$$
+db = 2 \times a \times da
+$$
+
+And finally divide both sides by $da$ to get the result of $\frac{dc}{da}$
+
+$$
+\frac{db}{da} = 2a
+$$
+
+If we did the same process for $b = a^3$ we would find the result to $\frac{dc}{da} = 3a^2$.
+
+The pattern here is the derivative of $a^n$ will be $na^{n-1}$
+
+<!-- livebook:{"break_markdown":true} -->
 
 #### Chain rule
 
-$\frac{dz}{dx} = \frac{dz}{dy} . \frac{dy}{dx}$
+_Calculus Made Easy_ describes the chain rule as "a useful dodge" which is perfect for what we need. It allows us to easily find the rate of change between different values in a complicated function.
 
+The chain rule is simply this:
+
+$$
+\frac{dz}{dx} = \frac{dz}{dy} . \frac{dy}{dx}
+$$
+
+Wikipedia has a useful explanation:
+
+> In calculus, the chain rule is a formula that expresses the derivative of the composition of two differentiable functions f and g in terms of the derivatives of f and g.
+> 
+> ...
+> 
 > Intuitively, the chain rule states that knowing the instantaneous rate of change of z relative to y and that of y relative to x allows one to calculate the instantaneous rate of change of z relative to x as the product of the two rates of change.
 > 
 > If a car travels twice as fast as a bicycle and the bicycle is four times as fast as a walking man, then the car travels 2 × 4 = 8 times as fast as the man.
 
 [Wikipedia Chain Rule](https://en.wikipedia.org/wiki/Chain_rule)
+
+Thinking of it in programmatically, we know that our equation $x \times y + z$ could also be written as: `Math.add(Math.mul(x, y), z)`.
 
 <!-- livebook:{"break_markdown":true} -->
 
@@ -467,10 +557,14 @@ The `Grad` module can automatically determine the gradients of each child and re
 [{1, 10}, {2, 5}]
 ```
 
-Note: the use of the term children here can be since really, these are the parent values that created the Value being passed in. I believe Andrej will have used the term children since the final value of the calculation is effectively the root node in the graph, and the previous values branch away as it's child nodes. I've left the name the same here to make it easier to compare back to the original micrograd library.
+Note: the use of the term children here can be confusing since really, these are the parent values that created the Value being passed in. I believe Andrej will have used the term children since the final value of the calculation is effectively the root node in the graph, and the previous values branch away as it's child nodes. I've left the name the same here to make it easier to compare back to the original micrograd library.
 
 ```elixir
 defmodule Grad do
+  # As shown above the gradient from addition results in 1. Then given the
+  # chain rule we multiply the gradients coming from the parent to
+  # become value_grad * 1. So we're just passing through the gradient
+  # from the upstream value to the children.
   def calculate(%Value{op: :add, children: [left, right]}, value_grad) do
     [
       {left.id, value_grad},
@@ -478,10 +572,14 @@ defmodule Grad do
     ]
   end
 
+  # The same as above but passing to all of the children
   def calculate(%Value{op: :sum, children: children}, value_grad) do
     Enum.map(children, & {&1.id, value_grad})
   end
 
+  # As the product rule above proved the gradient of each child is the 
+  # value of the other child. Then for the chain rule we multiply by
+  # the value gradient to get the final gradient value for each child.
   def calculate(%Value{op: :mul, children: [left, right]}, value_grad) do
     [
       {left.id, right.data * value_grad},
@@ -489,12 +587,15 @@ defmodule Grad do
     ]
   end
 
+  # This is power rule described above then multiplied by the value_grad
   def calculate(%Value{op: :pow, children: [child, exp]}, value_grad) do
     [
       {child.id, (exp.data * child.data ** (exp.data - 1)) * value_grad}
     ]
   end
 
+  # For the sake of brevity I haven't included the quotient rule or the working
+  # for tanh, but wikipedia has a good write to explain the process.
   def calculate(%Value{op: :tanh, children: [child], data: data}, value_grad) do
     [
       {child.id, (1 - data ** 2) * value_grad}
@@ -516,12 +617,14 @@ We can now use this to calculate the gradients for our example above:
 
 ```elixir
 left = Value.new(10.0, "left")
-right = Value.new(5.0, "left")
+right = Value.new(5.0, "right")
 result = Math.mul(left, right, "result")
 
 # Assume the current gradient of result is 1
 Grad.calculate(result, 1.0)
 ```
+
+## Backpropagation
 
 This here is one major departure from the original implementation of Micrograd. In python we can add a backward function on the instance of the `Value` class and then call it to determine the gradients, then updating the state on the instances to keep track of the gradient.
 
