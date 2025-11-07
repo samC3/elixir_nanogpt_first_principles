@@ -1,4 +1,4 @@
-<!-- livebook:{"file_entries":[{"name":"gradient.gif","type":"attachment"},{"name":"training_demo_1.gif","type":"attachment"}]} -->
+<!-- livebook:{"file_entries":[{"name":"gradient.gif","type":"attachment"},{"name":"training_demo_1.gif","type":"attachment"}],"persist_outputs":true} -->
 
 # Neural networks from first principles, Micrograd Elixir
 
@@ -62,6 +62,12 @@ In Elixir we can complete mathematical operations in the language as with simple
 2 * 3
 ```
 
+<!-- livebook:{"output":true} -->
+
+```
+6
+```
+
 Instead of working with raw numbers (integers and floats) we will instead wrap those in a `%Value{}` [struct](https://hexdocs.pm/elixir/structs.html). This will allow us to store the intermediary values to keep track of the calculation we are running.
 
 The `Value` will hold information about a number in the computational graph:
@@ -104,6 +110,12 @@ end
 Value.new(2.0, "x")
 ```
 
+<!-- livebook:{"output":true} -->
+
+```
+%Value{data: 2.0, op: nil, label: "x", id: 1, children: []}
+```
+
 Given these values we can start to make a computational graph like the one we've drawn:
 
 ```elixir
@@ -111,6 +123,21 @@ two = Value.new(2.0, "two")
 three = Value.new(3.0, "three")
 
 Value.new(two.data * three.data, "six", [two, three])
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+%Value{
+  data: 6.0,
+  op: nil,
+  label: "six",
+  id: 4,
+  children: [
+    %Value{data: 2.0, op: nil, label: "two", id: 2, children: []},
+    %Value{data: 3.0, op: nil, label: "three", id: 3, children: []}
+  ]
+}
 ```
 
 We also need a way to perform operations on the values so can build up mathimatical functions with our new date model.
@@ -177,6 +204,21 @@ end
 Math.mul(two, three, "six")
 ```
 
+<!-- livebook:{"output":true} -->
+
+```
+%Value{
+  data: 6.0,
+  op: :mul,
+  label: "six",
+  id: 5,
+  children: [
+    %Value{data: 2.0, op: nil, label: "two", id: 2, children: []},
+    %Value{data: 3.0, op: nil, label: "three", id: 3, children: []}
+  ]
+}
+```
+
 With the `Math` module we can now create mathematical expressions which we can use to view the computational graphs. What we want to produce programmtically is this with the values of each filled in, and further along the gradients as well.
 
 ```mermaid
@@ -199,6 +241,30 @@ y = Value.new(3.0, "y")
 z = Value.new(4.0, "z")
 
 result = Math.mul(x, y, "x*y") |> Math.add(z, "result")
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+%Value{
+  data: 10.0,
+  op: :add,
+  label: "result",
+  id: 10,
+  children: [
+    %Value{
+      data: 6.0,
+      op: :mul,
+      label: "x*y",
+      id: 9,
+      children: [
+        %Value{data: 2.0, op: nil, label: "x", id: 6, children: []},
+        %Value{data: 3.0, op: nil, label: "y", id: 7, children: []}
+      ]
+    },
+    %Value{data: 4.0, op: nil, label: "z", id: 8, children: []}
+  ]
+}
 ```
 
 Here we can see the final result of the $x \times y + z$ function is `10`, and we can see all of the intermediate values along the way right back to the intital values.
@@ -252,10 +318,51 @@ defmodule Mermaid do
 end
 ```
 
+<!-- livebook:{"output":true} -->
+
+```
+{:module, Mermaid, <<70, 79, 82, 49, 0, 0, 18, ...>>, {:value_node, 2}}
+```
+
 With this we can now view our result `Value` from before and see the full computational graph. We will fill in the `grad` field in the graph in the next section.
 
 ```elixir
 Mermaid.render_value(result)
+```
+
+<!-- livebook:{"output":true} -->
+
+```mermaid
+---
+config:
+  theme: base
+---
+flowchart LR
+
+ 
+ 6[x
+data: 2.0
+grad: 0.0]
+ --> 67mul[mul]
+ 7[y
+data: 3.0
+grad: 0.0]
+ --> 67mul[mul]
+67mul[mul] --> 9[x*y
+data: 6.0
+grad: 0.0]
+
+ --> 98add[add]
+ 8[z
+data: 4.0
+grad: 0.0]
+ --> 98add[add]
+98add[add] --> 10[result
+data: 10.0
+grad: 0.0]
+
+
+
 ```
 
 We can use the computational graph to move forwards through the calculation, but we also want to be able to move backwards and determine the gradient for each value.
@@ -302,6 +409,12 @@ f = fn x -> x**2 end
 _y = f.(3)
 ```
 
+<!-- livebook:{"output":true} -->
+
+```
+9
+```
+
 And with this function calculate the values for $y$ when $x$ is between -10 and 10:
 
 ```elixir
@@ -312,6 +425,12 @@ xs =
   )
 
 Tucan.lineplot(xs, "x", "y")
+```
+
+<!-- livebook:{"output":true} -->
+
+```vega-lite
+{"$schema":"https://vega.github.io/schema/vega-lite/v5.json","__tucan__":{"types":{"type":"nominal","x":"quantitative","y":"quantitative"}},"data":{"values":[{"type":"curve","x":-10,"y":100},{"type":"curve","x":-9,"y":81},{"type":"curve","x":-8,"y":64},{"type":"curve","x":-7,"y":49},{"type":"curve","x":-6,"y":36},{"type":"curve","x":-5,"y":25},{"type":"curve","x":-4,"y":16},{"type":"curve","x":-3,"y":9},{"type":"curve","x":-2,"y":4},{"type":"curve","x":-1,"y":1},{"type":"curve","x":0,"y":0},{"type":"curve","x":1,"y":1},{"type":"curve","x":2,"y":4},{"type":"curve","x":3,"y":9},{"type":"curve","x":4,"y":16},{"type":"curve","x":5,"y":25},{"type":"curve","x":6,"y":36},{"type":"curve","x":7,"y":49},{"type":"curve","x":8,"y":64},{"type":"curve","x":9,"y":81},{"type":"curve","x":10,"y":100}]},"encoding":{"x":{"field":"x","type":"quantitative"},"y":{"field":"y","type":"quantitative"}},"mark":{"fillOpacity":1,"type":"line"}}
 ```
 
 We can then look to find the derivative by looking at the gradient of the slope an any point along this graph. This is commonly referred to as the _"instantanous rate of change"_, but as Grant points out in the Essence of Calculus, this is a paradox. Can something change is we look at it as a snapshot in single moment of time?
@@ -331,6 +450,12 @@ h = 0.000001
 x = 3
 
 (f.(x + h) - f.(x)) / h
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+6.000001000927568
 ```
 
 Here we can see that when $x = 3$ the _"rate of change"_, or _"gradient"_ of the function when the value is nudged just a little bit it approximately $6$.
@@ -360,6 +485,12 @@ end)
 |> Tucan.hconcat()
 ```
 
+<!-- livebook:{"output":true} -->
+
+```vega-lite
+{"$schema":"https://vega.github.io/schema/vega-lite/v5.json","hconcat":[{"__tucan__":{"types":{"type":"nominal","x":"quantitative","y":"quantitative"}},"data":{"values":[{"type":"curve","x":-10,"y":100},{"type":"curve","x":-9,"y":81},{"type":"curve","x":-8,"y":64},{"type":"curve","x":-7,"y":49},{"type":"curve","x":-6,"y":36},{"type":"curve","x":-5,"y":25},{"type":"curve","x":-4,"y":16},{"type":"curve","x":-3,"y":9},{"type":"curve","x":-2,"y":4},{"type":"curve","x":-1,"y":1},{"type":"curve","x":0,"y":0},{"type":"curve","x":1,"y":1},{"type":"curve","x":2,"y":4},{"type":"curve","x":3,"y":9},{"type":"curve","x":4,"y":16},{"type":"curve","x":5,"y":25},{"type":"curve","x":6,"y":36},{"type":"curve","x":7,"y":49},{"type":"curve","x":8,"y":64},{"type":"curve","x":9,"y":81},{"type":"curve","x":10,"y":100},{"type":"tangent","x":0,"y":-4.000002001296025},{"type":"tangent","x":1,"y":-1.000648012450256e-6},{"type":"tangent","x":2,"y":4.0},{"type":"tangent","x":3,"y":8.000001000648012},{"type":"tangent","x":4,"y":12.000002001296025}]},"encoding":{"color":{"field":"type"},"x":{"field":"x","type":"quantitative"},"y":{"field":"y","type":"quantitative"}},"mark":{"fillOpacity":1,"type":"line"},"title":"grad is 4.0 when x is 2"},{"__tucan__":{"types":{"type":"nominal","x":"quantitative","y":"quantitative"}},"data":{"values":[{"type":"curve","x":-10,"y":100},{"type":"curve","x":-9,"y":81},{"type":"curve","x":-8,"y":64},{"type":"curve","x":-7,"y":49},{"type":"curve","x":-6,"y":36},{"type":"curve","x":-5,"y":25},{"type":"curve","x":-4,"y":16},{"type":"curve","x":-3,"y":9},{"type":"curve","x":-2,"y":4},{"type":"curve","x":-1,"y":1},{"type":"curve","x":0,"y":0},{"type":"curve","x":1,"y":1},{"type":"curve","x":2,"y":4},{"type":"curve","x":3,"y":9},{"type":"curve","x":4,"y":16},{"type":"curve","x":5,"y":25},{"type":"curve","x":6,"y":36},{"type":"curve","x":7,"y":49},{"type":"curve","x":8,"y":64},{"type":"curve","x":9,"y":81},{"type":"curve","x":10,"y":100},{"type":"tangent","x":-1.6,"y":-1.4400019999462543},{"type":"tangent","x":-0.6,"y":-0.6400009999731272},{"type":"tangent","x":0.4,"y":0.16000000000000003},{"type":"tangent","x":1.4,"y":0.9600009999731272},{"type":"tangent","x":2.4,"y":1.7600019999462546}]},"encoding":{"color":{"field":"type"},"x":{"field":"x","type":"quantitative"},"y":{"field":"y","type":"quantitative"}},"mark":{"fillOpacity":1,"type":"line"},"title":"grad is 0.8 when x is 0.4"},{"__tucan__":{"types":{"type":"nominal","x":"quantitative","y":"quantitative"}},"data":{"values":[{"type":"curve","x":-10,"y":100},{"type":"curve","x":-9,"y":81},{"type":"curve","x":-8,"y":64},{"type":"curve","x":-7,"y":49},{"type":"curve","x":-6,"y":36},{"type":"curve","x":-5,"y":25},{"type":"curve","x":-4,"y":16},{"type":"curve","x":-3,"y":9},{"type":"curve","x":-2,"y":4},{"type":"curve","x":-1,"y":1},{"type":"curve","x":0,"y":0},{"type":"curve","x":1,"y":1},{"type":"curve","x":2,"y":4},{"type":"curve","x":3,"y":9},{"type":"curve","x":4,"y":16},{"type":"curve","x":5,"y":25},{"type":"curve","x":6,"y":36},{"type":"curve","x":7,"y":49},{"type":"curve","x":8,"y":64},{"type":"curve","x":9,"y":81},{"type":"curve","x":10,"y":100},{"type":"tangent","x":-5,"y":20.999998001499534},{"type":"tangent","x":-4,"y":14.999999000749767},{"type":"tangent","x":-3,"y":9.0},{"type":"tangent","x":-2,"y":3.000000999250233},{"type":"tangent","x":-1,"y":-2.9999980014995344}]},"encoding":{"color":{"field":"type"},"x":{"field":"x","type":"quantitative"},"y":{"field":"y","type":"quantitative"}},"mark":{"fillOpacity":1,"type":"line"},"title":"grad is -6.0 when x is -3"}]}
+```
+
 Here we can see the gradient rendered as a slope on the parabola to visualize the "steepness", i.e. the higher rate of change as $x$ grows larger. Notice that we get a negative slope when $x$ is a negative value.
 
 <!-- livebook:{"break_markdown":true} -->
@@ -380,6 +511,12 @@ f = fn x, y, z -> x * y + z end
 f.(x, y, z)
 ```
 
+<!-- livebook:{"output":true} -->
+
+```
+84
+```
+
 Now we can increase each variable separately using the same approach above to see the resulting gradient.
 
 ```elixir
@@ -394,6 +531,20 @@ gradient of x: #{x_grad}
 gradient of y: #{y_grad}
 gradient of z: #{z_grad}
 """
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+gradient of x: 10.000007932831068
+gradient of y: 8.000000661922968
+gradient of z: 1.0000036354540498
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+:ok
 ```
 
 We can make some interesting observations about the results of these gradients:
@@ -613,6 +764,12 @@ defmodule Grad do
 end
 ```
 
+<!-- livebook:{"output":true} -->
+
+```
+{:module, Grad, <<70, 79, 82, 49, 0, 0, 25, ...>>, {:calculate, 2}}
+```
+
 We can now use this to calculate the gradients for our example above:
 
 ```elixir
@@ -622,6 +779,12 @@ result = Math.mul(left, right, "result")
 
 # Assume the current gradient of result is 1
 Grad.calculate(result, 1.0)
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+[{11, 5.0}, {12, 10.0}]
 ```
 
 ## Backpropagation
@@ -675,14 +838,51 @@ defmodule Backward do
 end
 ```
 
+<!-- livebook:{"output":true} -->
+
+```
+{:module, Backward, <<70, 79, 82, 49, 0, 0, 15, ...>>, {:gradients_for_node, 2}}
+```
+
 ```elixir
 grad_map = Backward.compute_gradients(result)
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+%{11 => 5.0, 12 => 10.0, 13 => 1.0}
 ```
 
 Now that we have the gradients for each of the values we can pass that to `Mermaid.render_value/2` as the second arguement so we can view the gradients in our diagram as well.
 
 ```elixir
 Mermaid.render_value(result, grad_map)
+```
+
+<!-- livebook:{"output":true} -->
+
+```mermaid
+---
+config:
+  theme: base
+---
+flowchart LR
+
+ 11[left
+data: 10.0
+grad: 5.0]
+ --> 1112mul[mul]
+ 12[right
+data: 5.0
+grad: 10.0]
+ --> 1112mul[mul]
+1112mul[mul] --> 13[result
+data: 50.0
+grad: 1.0]
+
+
+
 ```
 
 ## A single neuron
@@ -749,6 +949,67 @@ output = Math.tanh(x1w1x2w2b, "output")
 Mermaid.render_value(output)
 ```
 
+<!-- livebook:{"output":true} -->
+
+```mermaid
+---
+config:
+  theme: base
+---
+flowchart LR
+
+ 
+ 
+ 
+ 14[x1
+data: 2.0
+grad: 0.0]
+ --> 1416mul[mul]
+ 16[w1
+data: -3.0
+grad: 0.0]
+ --> 1416mul[mul]
+1416mul[mul] --> 19[x1*w1
+data: -6.0
+grad: 0.0]
+
+ --> 1920add[add]
+ 
+ 15[x2
+data: 0.0
+grad: 0.0]
+ --> 1517mul[mul]
+ 17[w2
+data: 1.0
+grad: 0.0]
+ --> 1517mul[mul]
+1517mul[mul] --> 20[x2*w2
+data: 0.0
+grad: 0.0]
+
+ --> 1920add[add]
+1920add[add] --> 21[x1*w1+x2*w2
+data: -6.0
+grad: 0.0]
+
+ --> 2118add[add]
+ 18[b
+data: 6.881373587019543
+grad: 0.0]
+ --> 2118add[add]
+2118add[add] --> 22[w+b
+data: 0.8813735870195432
+grad: 0.0]
+
+ --> 22tanh[tanh]
+22tanh[tanh] --> 23[output
+data: 0.7071067811865476
+grad: 0.0]
+
+
+
+```
+
 Here we can see that if we pass the values `2` and `0` into the calculation as inputs we get approx. `0.7071` as a result. We can also see all of the intermediate values along the way.
 
 If we then pass the `output` `Value` struct (which contains all of the other `Value` structs created as children) into `Backward` we can create a new datastruct which holds the gradients of every `Value` in this graph. Passing that to our renderer shows us this update view.
@@ -757,6 +1018,67 @@ If we then pass the `output` `Value` struct (which contains all of the other `Va
 grad_map = Backward.compute_gradients(output)
 
 Mermaid.render_value(output, grad_map)
+```
+
+<!-- livebook:{"output":true} -->
+
+```mermaid
+---
+config:
+  theme: base
+---
+flowchart LR
+
+ 
+ 
+ 
+ 14[x1
+data: 2.0
+grad: -1.4999999999999996]
+ --> 1416mul[mul]
+ 16[w1
+data: -3.0
+grad: 0.9999999999999998]
+ --> 1416mul[mul]
+1416mul[mul] --> 19[x1*w1
+data: -6.0
+grad: 0.4999999999999999]
+
+ --> 1920add[add]
+ 
+ 15[x2
+data: 0.0
+grad: 0.4999999999999999]
+ --> 1517mul[mul]
+ 17[w2
+data: 1.0
+grad: 0.0]
+ --> 1517mul[mul]
+1517mul[mul] --> 20[x2*w2
+data: 0.0
+grad: 0.4999999999999999]
+
+ --> 1920add[add]
+1920add[add] --> 21[x1*w1+x2*w2
+data: -6.0
+grad: 0.4999999999999999]
+
+ --> 2118add[add]
+ 18[b
+data: 6.881373587019543
+grad: 0.4999999999999999]
+ --> 2118add[add]
+2118add[add] --> 22[w+b
+data: 0.8813735870195432
+grad: 0.4999999999999999]
+
+ --> 22tanh[tanh]
+22tanh[tanh] --> 23[output
+data: 0.7071067811865476
+grad: 1.0]
+
+
+
 ```
 
 ## Loss function
@@ -779,14 +1101,32 @@ defmodule Loss do
 end
 ```
 
+<!-- livebook:{"output":true} -->
+
+```
+{:module, Loss, <<70, 79, 82, 49, 0, 0, 10, ...>>, {:mean_sq_error, 2}}
+```
+
 ```elixir
 loss = Loss.mean_sq_error([Value.new(3, "")], [Value.new(-10, "")])
 loss.data
 ```
 
+<!-- livebook:{"output":true} -->
+
+```
+169.0
+```
+
 ```elixir
 loss = Loss.mean_sq_error([Value.new(3, "")], [Value.new(3.1, "")])
 loss.data
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+0.010000000000000018
 ```
 
 ```elixir
@@ -798,6 +1138,73 @@ gradients = Backward.compute_gradients(loss)
 # will show the full working.
 %Value{loss | children: [output], label: "MSE", op: :mse}
 |> Mermaid.render_value(gradients)
+```
+
+<!-- livebook:{"output":true} -->
+
+```mermaid
+---
+config:
+  theme: base
+---
+flowchart LR
+
+ 
+ 
+ 
+ 
+ 14[x1
+data: 2.0
+grad: 3.878679656440357]
+ --> 1416mul[mul]
+ 16[w1
+data: -3.0
+grad: -2.5857864376269046]
+ --> 1416mul[mul]
+1416mul[mul] --> 19[x1*w1
+data: -6.0
+grad: -1.2928932188134523]
+
+ --> 1920add[add]
+ 
+ 15[x2
+data: 0.0
+grad: -1.2928932188134523]
+ --> 1517mul[mul]
+ 17[w2
+data: 1.0
+grad: -0.0]
+ --> 1517mul[mul]
+1517mul[mul] --> 20[x2*w2
+data: 0.0
+grad: -1.2928932188134523]
+
+ --> 1920add[add]
+1920add[add] --> 21[x1*w1+x2*w2
+data: -6.0
+grad: -1.2928932188134523]
+
+ --> 2118add[add]
+ 18[b
+data: 6.881373587019543
+grad: -1.2928932188134523]
+ --> 2118add[add]
+2118add[add] --> 22[w+b
+data: 0.8813735870195432
+grad: -1.2928932188134523]
+
+ --> 22tanh[tanh]
+22tanh[tanh] --> 23[output
+data: 0.7071067811865476
+grad: -2.585786437626905]
+
+ --> 23mse[mse]
+23mse[mse] --> 52[MSE
+data: 1.6715728752538102
+grad: 1.0]
+
+
+
 ```
 
 The gradient of output is set to `1` and then the process of moving the gradient backwards through the graph happens. In the middle we see that the addition operations effectively work as a pass through sending the gradient back along through the computation.
@@ -875,8 +1282,26 @@ defmodule Neuron do
 end
 ```
 
+<!-- livebook:{"output":true} -->
+
+```
+{:module, Neuron, <<70, 79, 82, 49, 0, 0, 30, ...>>, {:random_value, 0}}
+```
+
 ```elixir
 neuron = Neuron.new(2, seed: 1)
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+%Neuron{
+  weights: [
+    %Value{data: 0.9739946443328626, op: nil, label: "w1", id: 53, children: []},
+    %Value{data: -0.563924456558978, op: nil, label: "w2", id: 54, children: []}
+  ],
+  bias: %Value{data: 0.38661215006185845, op: nil, label: "b", id: 55, children: []}
+}
 ```
 
 ## Training a NOT gate
@@ -889,9 +1314,24 @@ With our perceptron model
 neuron = Neuron.new(1, seed: 42)
 ```
 
+<!-- livebook:{"output":true} -->
+
+```
+%Neuron{
+  weights: [%Value{data: -0.2655397043350758, op: nil, label: "w1", id: 56, children: []}],
+  bias: %Value{data: 0.7987285881433279, op: nil, label: "b", id: 57, children: []}
+}
+```
+
 ```elixir
 output = Neuron.call(neuron, [Value.new(1)])
 output.data
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+0.4878149145799068
 ```
 
 ```elixir
@@ -925,6 +1365,20 @@ end
 print_results.(inputs, expected_outputs, predictions, loss)
 ```
 
+<!-- livebook:{"output":true} -->
+
+```
+Inputting [1] should return 1, predicted: 0.4878149145799068
+Inputting [0] should return -1, predicted: 0.6633253806816016
+Loss: 1.5144924418731918
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+:ok
+```
+
 ```elixir
 gradients = Backward.compute_gradients(loss)
 
@@ -934,6 +1388,20 @@ predictions = for input <- inputs, do: Neuron.call(neuron, input)
 loss = Loss.mean_sq_error(predictions, expected_outputs)
 
 print_results.(inputs, expected_outputs, predictions, loss)
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+Inputting [1] should return 1, predicted: 0.3647337144516438
+Inputting [0] should return -1, predicted: 0.25202229446915153
+Loss: 0.9855615397011022
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+:ok
 ```
 
 ```elixir
@@ -954,14 +1422,49 @@ loss = Loss.mean_sq_error(predictions, expected_outputs)
 print_results.(inputs, expected_outputs, predictions, loss)
 ```
 
+<!-- livebook:{"output":true} -->
+
+```
+Inputting [1] should return 1, predicted: 0.950672239488215
+Inputting [0] should return -1, predicted: -0.9175676587362873
+Loss: 0.004614159421662602
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+:ok
+```
+
 ```elixir
 neuron
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+%Neuron{
+  weights: [%Value{data: 3.4121386403722465, op: nil, label: "w1", id: 56, children: []}],
+  bias: %Value{data: -1.5734174832562366, op: nil, label: "b", id: 57, children: []}
+}
 ```
 
 ## Training a single neuron to be an AND gate
 
 ```elixir
 neuron = Neuron.new(2, seed: 1)
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+%Neuron{
+  weights: [
+    %Value{data: 0.9739946443328626, op: nil, label: "w1", id: 340, children: []},
+    %Value{data: -0.563924456558978, op: nil, label: "w2", id: 341, children: []}
+  ],
+  bias: %Value{data: 0.38661215006185845, op: nil, label: "b", id: 342, children: []}
+}
 ```
 
 ```elixir
@@ -985,6 +1488,22 @@ loss = Loss.mean_sq_error(predictions, expected_outputs)
 print_results.(inputs, expected_outputs, predictions, loss)
 ```
 
+<!-- livebook:{"output":true} -->
+
+```
+Inputting [1, 1] should return 1, predicted: 0.6621779257834288
+Inputting [0, 1] should return -1, predicted: -0.1754771689583783
+Inputting [1, 0] should return -1, predicted: 0.8765337296267863
+Inputting [0, 0] should return -1, predicted: 0.3684359230494372
+Loss: 1.5469893416640146
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+:ok
+```
+
 ```elixir
 gradients = Backward.compute_gradients(loss)
 
@@ -994,6 +1513,22 @@ predictions = for input <- inputs, do: Neuron.call(neuron, input)
 loss = Loss.mean_sq_error(predictions, expected_outputs)
 
 print_results.(inputs, expected_outputs, predictions, loss)
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+Inputting [1, 1] should return 1, predicted: -0.9794852561162799
+Inputting [0, 1] should return -1, predicted: -0.9951875283277666
+Inputting [1, 0] should return -1, predicted: -0.8045425111831644
+Inputting [0, 0] should return -1, predicted: -0.9508217110732399
+Loss: 0.9897517932754194
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+:ok
 ```
 
 ```elixir
@@ -1014,14 +1549,103 @@ loss = Loss.mean_sq_error(predictions, expected_outputs)
 print_results.(inputs, expected_outputs, predictions, loss)
 ```
 
+<!-- livebook:{"output":true} -->
+
+```
+Inputting [1, 1] should return 1, predicted: 0.9201182155991248
+Inputting [0, 1] should return -1, predicted: -0.9327180496173629
+Inputting [1, 0] should return -1, predicted: -0.9327174930478396
+Inputting [0, 0] should return -1, predicted: -0.999899169540279
+Loss: 0.0038587265587271685
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+:ok
+```
+
 ```elixir
 neuron
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+%Neuron{
+  weights: [
+    %Value{data: 3.268692394832694, op: nil, label: "w1", id: 340, children: []},
+    %Value{data: 3.2686881147652467, op: nil, label: "w2", id: 341, children: []}
+  ],
+  bias: %Value{data: -4.947583416130867, op: nil, label: "b", id: 342, children: []}
+}
 ```
 
 ```elixir
 neuron
 |> Neuron.call([Value.new(1), Value.new(1)])
 |> Mermaid.render_value()
+```
+
+<!-- livebook:{"output":true} -->
+
+```mermaid
+---
+config:
+  theme: base
+---
+flowchart LR
+
+ 
+ 
+ 
+ 4784[
+data: 1
+grad: 0.0]
+ --> 4784340mul[mul]
+ 340[w1
+data: 3.268692394832694
+grad: 0.0]
+ --> 4784340mul[mul]
+4784340mul[mul] --> 4786[.w1
+data: 3.268692394832694
+grad: 0.0]
+
+ --> 47864787sum[sum]
+ 
+ 4785[
+data: 1
+grad: 0.0]
+ --> 4785341mul[mul]
+ 341[w2
+data: 3.2686881147652467
+grad: 0.0]
+ --> 4785341mul[mul]
+4785341mul[mul] --> 4787[.w2
+data: 3.2686881147652467
+grad: 0.0]
+
+ --> 47864787sum[sum]
+47864787sum[sum] --> 4788[x.w
+data: 6.5373805095979405
+grad: 0.0]
+
+ --> 4788342add[add]
+ 342[b
+data: -4.947583416130867
+grad: 0.0]
+ --> 4788342add[add]
+4788342add[add] --> 4789[x.w+b
+data: 1.589797093467073
+grad: 0.0]
+
+ --> 4789tanh[tanh]
+4789tanh[tanh] --> 4790[output
+data: 0.9201182155991248
+grad: 0.0]
+
+
+
 ```
 
 The solution this neural network has arrived at is multiply each of the inputs by 3, sum them and subtract 5. Before being passed to `tanh` this leaves `1` for `1 and 1`, `-2` for `1 and 0` and `-5` for `0 and 0`. `tanh` will the squish these values down to close to `1` and `-1` giving us approximately the correct answer.
