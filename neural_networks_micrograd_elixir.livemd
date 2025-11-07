@@ -90,7 +90,7 @@ If you've been following along with Andrej Karpathy's course you may have notice
 defmodule Value do
   defstruct [:data, :op, :label, :id, children: []]
 
-  def new(data, label, children \\ [], op \\ nil) do
+  def new(data, label \\ "", children \\ [], op \\ nil) do
     %__MODULE__{
       data: data,
       children: children,
@@ -742,17 +742,286 @@ x2w2 = Math.mul(x2, w2, "x2*w2")
 
 x1w1x2w2 = Math.add(x1w1, x2w2, "x1*w1+x2*w2")
 
-x1w1x2w2b = Math.add(x1w1x2w2, b, "n")
+x1w1x2w2b = Math.add(x1w1x2w2, b, "w+b")
 
-output = Math.tanh(x1w1x2w2b, "o")
+output = Math.tanh(x1w1x2w2b, "output")
 
 Mermaid.render_value(output)
 ```
 
-We can now calculate the gradients for each node in the neuron all the way back to the inputs
+Here we can see that if we pass the values `2` and `0` into the calculation as inputs we get approx. `0.7071` as a result. We can also see all of the intermediate values along the way.
+
+If we then pass the `output` `Value` struct (which contains all of the other `Value` structs created as children) into `Backward` we can create a new datastruct which holds the gradients of every `Value` in this graph. Passing that to our renderer shows us this update view.
 
 ```elixir
 grad_map = Backward.compute_gradients(output)
 
 Mermaid.render_value(output, grad_map)
 ```
+
+## Loss function
+
+```elixir
+defmodule Loss do
+  def mean_sq_error(predictions, expected) do
+    squared_errors =
+      for {actual, prediction} <- Enum.zip(expected, predictions) do
+        Value.new(-1.0, "a")
+        |> Math.mul(actual, "b" )
+        |> Math.add(prediction, "c")
+        |> Math.pow(Value.new(2, "exp"), "pow")
+      end 
+
+    squared_errors
+    |> Math.sum("sum")
+    |> Math.mul(Value.new(1 / length(predictions), "div"), "avg")
+  end
+end
+```
+
+```elixir
+loss = Loss.mean_sq_error([Value.new(3, "")], [Value.new(-10, "")])
+loss.data
+```
+
+```elixir
+loss = Loss.mean_sq_error([Value.new(3, "")], [Value.new(3.1, "")])
+loss.data
+```
+
+```elixir
+loss = Loss.mean_sq_error([output], [Value.new(2)])
+gradients = Backward.compute_gradients(loss)
+
+# To make the graph easier to read leave out the intemediary values
+# from the loss function. Passing in the loss variable unmodified
+# will show the full working.
+%Value{loss | children: [output], label: "MSE", op: :mse}
+|> Mermaid.render_value(gradients)
+```
+
+The gradient of output is set to `1` and then the process of moving the gradient backwards through the graph happens. In the middle we see that the addition operations effectively work as a pass through sending the gradient back along through the computation.
+
+Then at the beginning the gradient of `w1` is the value of `x1` multiplied by the gradient `0.5` passed back. The same is true for `w2`.
+
+### The neuron struct
+
+We can create another data structure to define a neuron that takes an arbitray number of inputs. We'll again define a struct to hold the weights, which is just a list of `Value`s and a bias, which is a single `Value`.
+
+The weights and bias are commonly called the "parameters" of a neural network and will be the values that are adjusted as we train the network to produce the output we expect.
+
+We'll create a `new` function on the module to handle setting up a neuron with the number of weights required to handle the inputs. The weights a bias are initialised with random numbers to begin with.
+
+The module contains two other fuctions we need to run and train the network.
+
+#### call/2
+
+`call` takes the neuron struct and a list of `Value` as the input. These might be the inputs to the overall network or the outputs from other neurons in the network. Call then runs the same equation we did above to calculate the result of this single perceptron.
+
+#### train/3
+
+This is at the core of how a neural network can "learn" to approximate any function. Here we have neuron struct being passed in which contains the parameters (weights and bias), the gradient map with the grads for every value in the calculation, and a step size.
+
+When we do a single training loop we take each of the parameters and lookup the gradient, which is it's impact on the rate of change of the overall equation with respect to the loss. We then multiply the loss by the negative step size and add that value from the parameter.
+
+We'll work through an example to show how this process leads to a result.
+
+```elixir
+defmodule Neuron do
+  defstruct [:weights, :bias]
+  
+  def new(number_of_inputs, opts \\ []) do
+    set_random_seed(opts)
+
+    %__MODULE__{
+      weights: Enum.map(1..number_of_inputs, & Value.new(random_value(), "w#{&1}")),
+      bias: Value.new(random_value(), "b"),
+    }
+  end
+
+  def call(%__MODULE__{} = neuron, inputs) do
+    inputs
+    |> Enum.zip(neuron.weights)
+    |> Enum.map(fn {x, w} -> Math.mul(x, w, x.label <> "." <> w.label) end)
+    |> Math.sum("x.w")
+    |> Math.add(neuron.bias, "x.w+b")
+    |> Math.tanh("output")
+  end
+
+  def train(%__MODULE__{weights: weights, bias: bias} = neuron, gradients, opts \\ []) do
+    step_size = Keyword.get(opts, :step_size, 0.01)
+    
+    updated_weights = 
+      Enum.map(weights, fn w ->
+        %Value{w | data: w.data + (Map.get(gradients, w.id) * -step_size)}
+      end)
+    
+    %Neuron{neuron |
+      weights: updated_weights,
+      bias: %Value{bias | data: bias.data + (Map.get(gradients, bias.id) * -step_size)}
+    }
+  end
+
+  defp set_random_seed(opts) do
+    seed = Keyword.get(opts, :seed, Enum.random(1..10000))
+    :rand.seed(:default, seed)
+  end 
+  
+  defp random_value() do
+    # uniform/0 returns a value between 0 and 1, doubling
+    # and subtracting 1 gives us a value between -1 and 1
+    :rand.uniform() * 2 - 1
+  end
+end
+```
+
+```elixir
+neuron = Neuron.new(2, seed: 1)
+```
+
+## Training a NOT gate
+
+A logicaly `NOT` gate just returns the inverse of what it is given, i.e. pass in `true` and it returns `false`, pass in `false` and it returns `true`.
+
+With our perceptron model
+
+```elixir
+neuron = Neuron.new(1, seed: 42)
+```
+
+```elixir
+output = Neuron.call(neuron, [Value.new(1)])
+output.data
+```
+
+```elixir
+inputs = [
+  [Value.new(1, "x1")],
+  [Value.new(0, "x1")],
+]
+
+expected_outputs = [
+  Value.new(1, "x1"),
+  Value.new(-1, "x1")
+]
+
+predictions = for input <- inputs, do: Neuron.call(neuron, input)
+loss = Loss.mean_sq_error(predictions, expected_outputs)
+
+print_results = fn inputs, expected_outputs, predictions, loss ->
+  [inputs, expected_outputs, predictions]
+  |> Enum.zip()
+  |> Enum.each(fn {is, e, p} ->
+    is = Enum.map(is, & &1.data) |> Enum.join(", ")
+
+    IO.write(
+      "Inputting [#{is}] should return #{e.data}, predicted: #{p.data}\n"
+    )
+  end)
+
+  IO.write("Loss: #{loss.data}")
+end
+
+print_results.(inputs, expected_outputs, predictions, loss)
+```
+
+```elixir
+gradients = Backward.compute_gradients(loss)
+
+neuron = Neuron.train(neuron, gradients, step_size: 1)
+
+predictions = for input <- inputs, do: Neuron.call(neuron, input)
+loss = Loss.mean_sq_error(predictions, expected_outputs)
+
+print_results.(inputs, expected_outputs, predictions, loss)
+```
+
+```elixir
+neuron =
+  Enum.reduce(1..10, neuron, fn _, acc -> 
+    gradients =
+      inputs
+      |> Enum.map(& Neuron.call(acc, &1)) 
+      |> Loss.mean_sq_error(expected_outputs)
+      |> Backward.compute_gradients()
+      
+    Neuron.train(acc, gradients, step_size: 2)
+  end)
+  
+predictions = Enum.map(inputs, & Neuron.call(neuron, &1)) 
+loss = Loss.mean_sq_error(predictions, expected_outputs)
+
+print_results.(inputs, expected_outputs, predictions, loss)
+```
+
+```elixir
+neuron
+```
+
+## Training a single neuron to be an AND gate
+
+```elixir
+neuron = Neuron.new(2, seed: 1)
+```
+
+```elixir
+inputs = [
+  [Value.new(1, "x1"), Value.new(1, "x2")],
+  [Value.new(0, "x1"), Value.new(1, "x2")],
+  [Value.new(1, "x1"), Value.new(0, "x2")],
+  [Value.new(0, "x1"), Value.new(0, "x2")]
+]
+
+expected_outputs = [
+  Value.new(1),
+  Value.new(-1),
+  Value.new(-1),
+  Value.new(-1)
+]
+
+predictions = for input <- inputs, do: Neuron.call(neuron, input)
+loss = Loss.mean_sq_error(predictions, expected_outputs)
+
+print_results.(inputs, expected_outputs, predictions, loss)
+```
+
+```elixir
+gradients = Backward.compute_gradients(loss)
+
+neuron = Neuron.train(neuron, gradients, step_size: 2)
+
+predictions = for input <- inputs, do: Neuron.call(neuron, input)
+loss = Loss.mean_sq_error(predictions, expected_outputs)
+
+print_results.(inputs, expected_outputs, predictions, loss)
+```
+
+```elixir
+neuron =
+  Enum.reduce(1..100, neuron, fn _, acc -> 
+    gradients =
+      inputs
+      |> Enum.map(& Neuron.call(acc, &1)) 
+      |> Loss.mean_sq_error(expected_outputs)
+      |> Backward.compute_gradients()
+      
+    Neuron.train(acc, gradients, step_size: 2)
+  end)
+
+predictions = Enum.map(inputs, & Neuron.call(neuron, &1)) 
+loss = Loss.mean_sq_error(predictions, expected_outputs)
+
+print_results.(inputs, expected_outputs, predictions, loss)
+```
+
+```elixir
+neuron
+```
+
+```elixir
+neuron
+|> Neuron.call([Value.new(1), Value.new(1)])
+|> Mermaid.render_value()
+```
+
+The solution this neural network has arrived at is multiply each of the inputs by 3, sum them and subtract 5. Before being passed to `tanh` this leaves `1` for `1 and 1`, `-2` for `1 and 0` and `-5` for `0 and 0`. `tanh` will the squish these values down to close to `1` and `-1` giving us approximately the correct answer.
