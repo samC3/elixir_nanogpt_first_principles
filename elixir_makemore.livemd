@@ -78,14 +78,18 @@ The `.` character signifies either the beginning or end of the word.
 This gives us five bigrams from the one word. If we go through every word in the dataset and break them down into the bigrams from start to finish we can the count up the number of times we see each of the bigrams appear.
 
 ```elixir
-bigram_count =
-  for name <- names, reduce: %{} do
-    acc ->
-      "." <> name <> "."
-      |> String.split("", trim: true)
-      |> Enum.chunk_every(2, 1, :discard)
-      |> Enum.reduce(acc, &Map.update(&2, &1, 1, fn x -> x + 1 end))
+defmodule Bigram do
+  def from_string(str) do
+    "." <> str <> "."
+    |> String.split("", trim: true)
+    |> Enum.chunk_every(2, 1, :discard)  
   end
+end
+
+bigram_count =
+  names
+  |> Enum.flat_map(&Bigram.from_string/1)
+  |> Enum.reduce(%{}, fn bigram, acc -> Map.update(acc, bigram, 1, & &1 + 1) end)
 
 IO.write("Number of unique bigrams: #{Map.to_list(bigram_count) |> length()}")
 
@@ -289,7 +293,7 @@ for x <- 0..(vocabulary_size - 1), y <- 0..(vocabulary_size - 1) do
   %{
     "first_character" => Encoding.int_to_str(x),
     "second_character" => Encoding.int_to_str(y),
-    "occurrence_count" => #Nx.to_number(bigram_matrix[x][y])
+    "occurrence_count" =>
       (Nx.to_number(bigram_matrix_probabilites[x][y]) * 100)
       |> Float.round(2)
   }
@@ -364,11 +368,33 @@ end
 Running the model ten times with differen random seed shows some nonsensical names that at somewhat look like the shape of real names.
 
 ```elixir
-for i <- 0..10 do
+simple_prob_model_names =
+  for i <- 0..10 do
+    SimpleProbabilityModel.sample(
+      0,
+      "",
+      bigram_matrix_probabilites,
+      Nx.Random.key(i)
+    )
+    |> String.trim_trailing(".")
+  end
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+["toler", "stlatabr", "kalliarai", "karilide", "ck", "beena", "sariy", "u", "kiylieleoare",
+ "ltlamristuta", "ce"]
+```
+
+We can show that the bigram model is at least doing better than random by passing in a uniform distribution where every character has an equal chance of being the next character. As we can see it looks like a completely random mess compared to the bigram model.
+
+```elixir
+for i <- 0..15 do
   SimpleProbabilityModel.sample(
     0,
     "",
-    bigram_matrix_probabilites,
+    Nx.broadcast(1, {27, 27}) |> Nx.divide(27),
     Nx.Random.key(i)
   )
   |> String.trim_trailing(".")
@@ -378,6 +404,107 @@ end
 <!-- livebook:{"output":true} -->
 
 ```
-["toler", "stlatabr", "kalliarai", "karilide", "ck", "beena", "sariy", "u", "kiylieleoare",
- "ltlamristuta", "ce"]
+["xshktbdtszza", "wwpfwceq", "ojlsofsgjcuuiuclmraoixvelenfrmrtqqlufpeptrrzoqmifebrl",
+ "nduqmqhkcgpjqshjyithbmza", "es", "cehrl", "vftrzclkg", "y",
+ "nsyprklkscuicjajheakwaskndxfbznxpojhfmyixkofgpjwdgyitjmmrxyi",
+ "pvpcnxpvwxxedadsueyiwjtumppdazhfo",
+ "ekebyzkdpvhmxhecebjleajmrgusrtmegvczlxoumljumfhokczrxhzdgcpdkunqiduskipape",
+ "ljyvoguderarvajtwswfubfbxihnswwdvbfzzmiqufuto", "f", "taqmlooldbcltkpauxckxrtzzzxxffgcussmndfcbd",
+ "aefdpyrsa", "kmllcsgqleeslum"]
+```
+
+## Loss function
+
+A loss function is required to provide a numerical score for how well the model has performed based on the probabilities we've calculated from the training set.
+
+Log likelihood is commonly used to in cases such as this. It takes the `log` of the probabiliy of each bigram in the produced output, sums the result and normalised by dividing by the number of bigrams.
+
+It's called negative log likelihood as positive number is more commonly used to minimise when training more complicated models.
+
+```elixir
+defmodule Loss do
+  def negative_log_likelihood(names, bigram_probabilities) do
+    bigrams = 
+      Enum.flat_map(names, &Bigram.from_string/1)
+      |> Enum.map(fn [c1, c2] -> [Encoding.str_to_int(c1), Encoding.str_to_int(c2)] end)
+
+    Nx.gather(bigram_probabilities, Nx.tensor(bigrams))
+    |> Nx.log()
+    |> Nx.sum()
+    |> Nx.divide(length(bigrams))
+    |> Nx.abs()
+  end
+end
+
+Loss.negative_log_likelihood(simple_prob_model_names, bigram_matrix_probabilites)
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+#Nx.Tensor<
+  f32
+  2.461193561553955
+>
+```
+
+## Model smoothing
+
+There is an issue with the model right now, if a value is passed with a bigram that has never been seen (e.g. `mq`) then the loss function will return `Inf`.
+
+```elixir
+Loss.negative_log_likelihood(["samq"], bigram_matrix_probabilites)
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+#Nx.Tensor<
+  f32
+  Inf
+>
+```
+
+To fix this add 1 to each count to avoid any individual count being equal to
+zero.
+
+This is called model smoothing which helps makes the model more
+uniform. Adding one helps reduce the impact of zeros, but in theory
+you could add 1 million which would make every option practically 
+equally as likely.
+
+```elixir
+bigram_matrix = Nx.add(bigram_matrix, 1)
+
+bigram_matrix_probabilites =
+  Nx.divide(
+    bigram_matrix,
+    Nx.sum(bigram_matrix, axes: [1], keep_axes: true)
+  )
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+#Nx.Tensor<
+  f32[27][27]
+  [
+    [3.119151733699255e-5, 0.13758577406406403, 0.04076731204986572, 0.048128508031368256, 0.05274485424160957, 0.047785401344299316, 0.01303805410861969, 0.02089831605553627, 0.02729257568717003, 0.018465377390384674, 0.07557704299688339, 0.09245165437459946, 0.04906425625085831, 0.07919526100158691, 0.035776667296886444, 0.01232064887881279, 0.01609482243657112, 0.0029008109122514725, 0.051154084503650665, 0.06412975490093231, 0.040829695761203766, 0.0024641298223286867, 0.011759201064705849, 0.009606987237930298, 0.004210854414850473, 0.016718652099370956, 0.029008109122514725],
+    [0.19583038985729218, 0.016424864530563354, 0.01598254218697548, 0.013888888992369175, 0.03075607493519783, 0.020435243844985962, 0.003980891779065132, 0.004983486607670784, 0.06879570335149765, 0.04868483170866966, 0.005189903080463409, 0.016778720542788506, 0.07457537204027176, 0.04821302369236946, 0.16038569808006287, 0.0018872375367209315, 0.002447511302307248, 0.0017987733008340001, 0.0962786003947258, 0.032997168600559235, 0.020287804305553436, 0.01126444898545742, 0.02462255209684372, ...],
+    ...
+  ]
+>
+```
+
+```elixir
+Loss.negative_log_likelihood(["samq"], bigram_matrix_probabilites)
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+#Nx.Tensor<
+  f32
+  3.765857696533203
+>
 ```
