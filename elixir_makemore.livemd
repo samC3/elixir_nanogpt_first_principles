@@ -6,7 +6,8 @@
 Mix.install([
   {:nx, "~> 0.10.0"},
   {:tucan, "~> 0.5.1"},
-  {:kino_vega_lite, "~> 0.1.13"}
+  {:kino_vega_lite, "~> 0.1.13"},
+  {:exla, "~> 0.10.0"}
 ])
 ```
 
@@ -199,6 +200,18 @@ end
 
 ## Nx Tensor
 
+```elixir
+# Use the XLA backend for Nx so that computations are done more efficiently
+# using Google's Accelerated Linear Algebra library.
+Nx.global_default_backend(EXLA.Backend)
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+{Nx.BinaryBackend, []}
+```
+
 To start being efficient with the models we create we can leverage the nurmerical Elixir library `Nx` ([docs](https://hexdocs.pm/nx/Nx.html)).
 
 We can create a 2-dimensional tensor to store the count of the bigrams.
@@ -218,6 +231,7 @@ bigram_matrix =
 ```
 #Nx.Tensor<
   u32[27][27]
+  EXLA.Backend<host:0, 0.1565027411.2003173392.234732>
   [
     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ...],
@@ -227,25 +241,29 @@ bigram_matrix =
 ```
 
 ```elixir
-defmodule Encoding do
+defmodule BigramMapping do
   def str_to_int("."), do: 0
   def str_to_int(char), do: hd(to_charlist(char)) - ?a + 1
 
   def int_to_str(0), do: "."
   def int_to_str(int), do: to_string([int + ?a - 1])
+
+  def encode([c1, c2]), do: [str_to_int(c1), str_to_int(c2)]
+
+  def decode([c1, c2]), do: [int_to_str(c1), int_to_str(c2)]
 end
 ```
 
 <!-- livebook:{"output":true} -->
 
 ```
-{:module, Encoding, <<70, 79, 82, 49, 0, 0, 9, ...>>, {:int_to_str, 1}}
+{:module, BigramMapping, <<70, 79, 82, 49, 0, 0, 12, ...>>, {:decode, 1}}
 ```
 
 ```elixir
 bigram_matrix =
-  Enum.reduce(bigram_count, bigram_matrix, fn {[char, next], count}, tensor ->
-    t_index = Nx.tensor([Encoding.str_to_int(char), Encoding.str_to_int(next)])
+  Enum.reduce(bigram_count, bigram_matrix, fn {bigram, count}, tensor ->
+    t_index = Nx.tensor(BigramMapping.encode(bigram))
     Nx.indexed_add(tensor, t_index, count)
   end)
 ```
@@ -255,6 +273,7 @@ bigram_matrix =
 ```
 #Nx.Tensor<
   s64[27][27]
+  EXLA.Backend<host:0, 0.1565027411.2003173392.236617>
   [
     [0, 4410, 1306, 1542, 1690, 1531, 417, 669, 874, 591, 2422, 2963, 1572, 2538, 1146, 394, 515, 92, 1639, 2055, 1308, 78, 376, 307, 134, 535, 929],
     [6640, 556, 541, 470, 1042, 692, 134, 168, 2332, 1650, 175, 568, 2528, 1634, 5438, 63, 82, 60, 3264, 1118, 687, 381, 834, ...],
@@ -280,6 +299,7 @@ bigram_matrix_probabilites =
 ```
 #Nx.Tensor<
   f32[27][27]
+  EXLA.Backend<host:0, 0.1565027411.2003173392.236621>
   [
     [0.0, 0.13767053186893463, 0.040770456194877625, 0.048137858510017395, 0.05275809392333031, 0.047794461250305176, 0.013017825782299042, 0.020884713158011436, 0.02728436328470707, 0.018449723720550537, 0.07560952752828598, 0.09249836206436157, 0.04907439276576042, 0.07923079282045364, 0.03577560558915138, 0.012299816124141216, 0.01607717014849186, 0.0028720381669700146, 0.05116598680615425, 0.06415259093046188, 0.040832892060279846, 0.002434988971799612, 0.01173789519816637, 0.009583866223692894, 0.0041831862181425095, 0.016701526939868927, 0.02900134213268757],
     [0.19595691561698914, 0.016408439725637436, 0.015965767204761505, 0.013870444148778915, 0.030751070007681847, 0.020422015339136124, 0.003954552114009857, 0.004957946017384529, 0.0688210129737854, 0.04869411140680313, 0.005164526868611574, 0.01676257885992527, 0.07460528612136841, 0.048221927136182785, 0.16048398613929749, 0.0018592297565191984, 0.0024199497420340776, 0.0017706949729472399, 0.09632580727338791, 0.032993949949741364, 0.020274458453059196, 0.011243913322687149, 0.024612659588456154, ...],
@@ -291,8 +311,8 @@ bigram_matrix_probabilites =
 ```elixir
 for x <- 0..(vocabulary_size - 1), y <- 0..(vocabulary_size - 1) do  
   %{
-    "first_character" => Encoding.int_to_str(x),
-    "second_character" => Encoding.int_to_str(y),
+    "first_character" => BigramMapping.int_to_str(x),
+    "second_character" => BigramMapping.int_to_str(y),
     "occurrence_count" =>
       (Nx.to_number(bigram_matrix_probabilites[x][y]) * 100)
       |> Float.round(2)
@@ -344,15 +364,13 @@ The recursive model then just handles mapping the selected index to the characte
 
 ```elixir
 defmodule SimpleProbabilityModel do
-  @character_index_tensor Nx.tensor(Enum.to_list(0..26))
-  
   def sample(0, acc, _, _) when acc != "", do: acc
 
   def sample(i, acc, probs, key) do
-    {char_index, key} = Nx.Random.choice(key, @character_index_tensor, probs[i])
+    {char_index, key} = Nx.Random.choice(key, Nx.tensor(Enum.to_list(0..26)), probs[i])
 
     char_index = Nx.to_number(char_index[0])
-    acc = acc <> Encoding.int_to_str(char_index)
+    acc = acc <> BigramMapping.int_to_str(char_index)
 
     sample(char_index, acc, probs, key)
   end
@@ -422,11 +440,11 @@ Log likelihood is commonly used to in cases such as this. It takes the `log` of 
 It's called negative log likelihood as positive number is more commonly used to minimise when training more complicated models.
 
 ```elixir
-defmodule Loss do
+defmodule SimpleProbabilityLoss do
   def negative_log_likelihood(names, bigram_probabilities) do
     bigrams = 
       Enum.flat_map(names, &Bigram.from_string/1)
-      |> Enum.map(fn [c1, c2] -> [Encoding.str_to_int(c1), Encoding.str_to_int(c2)] end)
+      |> Enum.map(&BigramMapping.encode/1)
 
     Nx.gather(bigram_probabilities, Nx.tensor(bigrams))
     |> Nx.log()
@@ -436,7 +454,7 @@ defmodule Loss do
   end
 end
 
-Loss.negative_log_likelihood(simple_prob_model_names, bigram_matrix_probabilites)
+SimpleProbabilityLoss.negative_log_likelihood(simple_prob_model_names, bigram_matrix_probabilites)
 ```
 
 <!-- livebook:{"output":true} -->
@@ -444,6 +462,7 @@ Loss.negative_log_likelihood(simple_prob_model_names, bigram_matrix_probabilites
 ```
 #Nx.Tensor<
   f32
+  EXLA.Backend<host:0, 0.1565027411.2003435536.251285>
   2.461193561553955
 >
 ```
@@ -453,7 +472,7 @@ Loss.negative_log_likelihood(simple_prob_model_names, bigram_matrix_probabilites
 There is an issue with the model right now, if a value is passed with a bigram that has never been seen (e.g. `mq`) then the loss function will return `Inf`.
 
 ```elixir
-Loss.negative_log_likelihood(["samq"], bigram_matrix_probabilites)
+SimpleProbabilityLoss.negative_log_likelihood(["samq"], bigram_matrix_probabilites)
 ```
 
 <!-- livebook:{"output":true} -->
@@ -461,6 +480,7 @@ Loss.negative_log_likelihood(["samq"], bigram_matrix_probabilites)
 ```
 #Nx.Tensor<
   f32
+  EXLA.Backend<host:0, 0.1565027411.2003435536.251293>
   Inf
 >
 ```
@@ -488,6 +508,7 @@ bigram_matrix_probabilites =
 ```
 #Nx.Tensor<
   f32[27][27]
+  EXLA.Backend<host:0, 0.1565027411.2003435536.251297>
   [
     [3.119151733699255e-5, 0.13758577406406403, 0.04076731204986572, 0.048128508031368256, 0.05274485424160957, 0.047785401344299316, 0.01303805410861969, 0.02089831605553627, 0.02729257568717003, 0.018465377390384674, 0.07557704299688339, 0.09245165437459946, 0.04906425625085831, 0.07919526100158691, 0.035776667296886444, 0.01232064887881279, 0.01609482243657112, 0.0029008109122514725, 0.051154084503650665, 0.06412975490093231, 0.040829695761203766, 0.0024641298223286867, 0.011759201064705849, 0.009606987237930298, 0.004210854414850473, 0.016718652099370956, 0.029008109122514725],
     [0.19583038985729218, 0.016424864530563354, 0.01598254218697548, 0.013888888992369175, 0.03075607493519783, 0.020435243844985962, 0.003980891779065132, 0.004983486607670784, 0.06879570335149765, 0.04868483170866966, 0.005189903080463409, 0.016778720542788506, 0.07457537204027176, 0.04821302369236946, 0.16038569808006287, 0.0018872375367209315, 0.002447511302307248, 0.0017987733008340001, 0.0962786003947258, 0.032997168600559235, 0.020287804305553436, 0.01126444898545742, 0.02462255209684372, ...],
@@ -497,7 +518,7 @@ bigram_matrix_probabilites =
 ```
 
 ```elixir
-Loss.negative_log_likelihood(["samq"], bigram_matrix_probabilites)
+SimpleProbabilityLoss.negative_log_likelihood(["samq"], bigram_matrix_probabilites)
 ```
 
 <!-- livebook:{"output":true} -->
@@ -505,6 +526,326 @@ Loss.negative_log_likelihood(["samq"], bigram_matrix_probabilites)
 ```
 #Nx.Tensor<
   f32
+  EXLA.Backend<host:0, 0.1565027411.2003435536.251302>
   3.765857696533203
 >
+```
+
+## Simple neural network approach
+
+A neural network can be used to approximate the same model by passing in the first character and returning a set of probabilites for the character that should follow.
+
+```elixir
+names_to_input_output_bigrams = fn names ->
+  bigrams =
+    names
+    |> Enum.flat_map(&Bigram.from_string/1)
+    |> Enum.map(&BigramMapping.encode/1)
+    |> Nx.tensor()
+
+  {bigrams[[.., 0]], bigrams[[.., 1]]}
+end
+
+{inputs, outputs} = 
+  names_to_input_output_bigrams.(["sam"])
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+{#Nx.Tensor<
+   s32[4]
+   EXLA.Backend<host:0, 0.1565027411.2003435536.251306>
+   [0, 19, 1, 13]
+ >,
+ #Nx.Tensor<
+   s32[4]
+   EXLA.Backend<host:0, 0.1565027411.2003435536.251309>
+   [19, 1, 13, 0]
+ >}
+```
+
+Passing a single integer to the network which will be multipled by various weights doesn't work as well as passing in a one-hot-encoding vector which is set to `1` at the index of the charater while the rest remain zero. So if the vocabulary was only `a, b, c` which mapped to `0, 1, 2`, the one hot encoding for `a` would be `[1, 0, 0]`, and `b` would be `[0, 1, 0]`
+
+```elixir
+one_hot_encode = fn tensor ->
+  tensor
+  |> Nx.new_axis(-1)
+  |> Nx.equal(Nx.iota({vocabulary_size}))
+end
+
+inputs = one_hot_encode.(inputs)
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+#Nx.Tensor<
+  u8[4][27]
+  EXLA.Backend<host:0, 0.1565027411.2003435536.251315>
+  [
+    [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, ...],
+    ...
+  ]
+>
+```
+
+For this simple neural network there will only be weights with no bias or activation function. A single layer of 27 neurons with each taking 27 inputs requires and tensor with the shape `{27, 27}`.
+
+```elixir
+key = Nx.Random.key(42)
+
+{weights, key} = Nx.Random.normal(key, shape: {27, 27})
+
+weights
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+#Nx.Tensor<
+  f32[27][27]
+  EXLA.Backend<host:0, 0.1565027411.2003435536.251840>
+  [
+    [-1.3813380002975464, 1.1619457006454468, 0.4389880895614624, 0.47841933369636536, -0.01944045163691044, 0.7200543880462646, -1.2873157262802124, 1.8024386167526245, -0.6541416645050049, 2.333552598953247, 0.008432986214756966, 1.7843825817108154, -1.331638216972351, 0.37328076362609863, 1.0773977041244507, -0.050300661474466324, -0.5105248689651489, 0.6116188168525696, 0.9199008941650391, -0.2440028339624405, 0.042304638773202896, 0.3097541928291321, -0.5302157998085022, 0.32695192098617554, -1.0410704612731934, -0.9639928340911865, 0.3592979907989502],
+    [1.683728814125061, -0.024233371019363403, -0.516905665397644, 1.0823928117752075, -0.5861626267433167, 1.0994369983673096, -0.647191047668457, 0.37540796399116516, -0.4925920367240906, -1.3620562553405762, -0.4493446946144104, -1.504736065864563, 0.6882826685905457, 0.3561391234397888, 1.356558084487915, 0.15918461978435516, 0.09364021569490433, 1.0270025730133057, -2.107351064682007, 1.587530255317688, -1.3589147329330444, 0.7119573950767517, 3.3185901641845703, ...],
+    ...
+  ]
+>
+```
+
+Taking the dot product of the inputs by the weights returns the activations of each neuron in the layer. These values cannot currently be used as a probability distribution since some values are negative and have different ranges.
+
+To solve this the logits (result from the dot product) is exponentiated to remove the negatives, then the values are normalised so each of the rows sum to 1. Note: This is also known as softmax, which produces an output that has only positive values and sums to 1.
+
+```elixir
+logits = Nx.dot(inputs, weights)
+counts = Nx.exp(logits)
+
+untrained_network_probabilites =
+  Nx.divide(
+    counts,
+    Nx.sum(counts, axes: [1], keep_axes: true)
+  )
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+#Nx.Tensor<
+  f32[4][27]
+  EXLA.Backend<host:0, 0.1565027411.2003435536.251850>
+  [
+    [0.004861924331635237, 0.06185036897659302, 0.03001689724624157, 0.031224144622683525, 0.01897897571325302, 0.03975862264633179, 0.0053412336856126785, 0.11735587567090988, 0.01006063912063837, 0.1996019035577774, 0.019515426829457283, 0.11525589972734451, 0.005109666381031275, 0.028107965365052223, 0.05683600530028343, 0.018402226269245148, 0.01161442045122385, 0.03567289561033249, 0.048553839325904846, 0.015161653980612755, 0.02018776908516884, 0.026377899572253227, 0.011387959122657776, 0.02683546394109726, 0.006832576356828213, 0.007380042690783739, 0.027717676013708115],
+    [0.058093924075365067, 0.0454820916056633, 0.05167889967560768, 0.07422308623790741, 0.011480205692350864, 0.05333520472049713, 0.007877768017351627, 0.023267574608325958, 0.03405758738517761, 0.017352519556879997, 0.05348069593310356, 0.02075742930173874, 0.009526808746159077, 0.15203088521957397, 0.006109711714088917, 0.003009348176419735, 0.052116766571998596, 0.011071586050093174, 0.044853758066892624, 0.02339315600693226, 0.010454589501023293, 0.0041312891989946365, 0.06633784621953964, ...],
+    ...
+  ]
+>
+```
+
+The result of passing three names into the untrained network results in a loss of 3.8712. Stepping through what we have done:
+
+Given the name `sam`, which becomes the bigrams `[[., s], [s, a], [a, m], [m, .]]` encoded to `[[0, 19], [19, 1], [1, 13], [13, 0]]`.
+
+These bigrams are then one hot encoded to map an array full of zeros except at the index of the character which is one. The one hot encoded vectors were passed to the neural net (just 27 weights each taking 27 inputs). We then softmax the result of the network to create the probabilites of what characters come next.
+
+So taking the bigram `[s, a]` (i.e `[19, 1]`) for example. By running "sam" through the same process as before we end up with the probabilities for each bigram. `s` as the input is the second row of the probabilities matrix where each number is the probability of that character being the next character. This shows that the actual next character `a` have a `~4.5%` probability according the network.
+
+```elixir
+untrained_network_probabilites[1]
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+#Nx.Tensor<
+  f32[27]
+  EXLA.Backend<host:0, 0.1565027411.2003435536.251853>
+  [0.058093924075365067, 0.0454820916056633, 0.05167889967560768, 0.07422308623790741, 0.011480205692350864, 0.05333520472049713, 0.007877768017351627, 0.023267574608325958, 0.03405758738517761, 0.017352519556879997, 0.05348069593310356, 0.02075742930173874, 0.009526808746159077, 0.15203088521957397, 0.006109711714088917, 0.003009348176419735, 0.052116766571998596, 0.011071586050093174, 0.044853758066892624, 0.02339315600693226, 0.010454589501023293, 0.0041312891989946365, 0.06633784621953964, 0.014337228611111641, 0.08794016391038895, 0.061035700142383575, 0.0025642095133662224]
+>
+```
+
+Taking the negative log of this gives the loss for this single example of `~3.1`. For reference the final model will have a loss under `1.0` so this is not great, but also expected from a random, untrained model.
+
+```elixir
+untrained_network_probabilites[1][1]
+|> Nx.log()
+|> Nx.abs()
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+#Nx.Tensor<
+  f32
+  EXLA.Backend<host:0, 0.1565027411.2003435536.251860>
+  3.0904366970062256
+>
+```
+
+## Neural network loss
+
+There are two problems with the current Loss function:
+
+1. It takes in a list of names as strings, which are then converted to bigrams and encoded. Doing this every time the loss is calculated is inefficient.
+2. It expects the probabilities to be in the shape `{27, 27}`, to then lookup the probability by the index of the leading character, then the index of the following character.
+
+The probabilites from the neural network will be 27 values for each input given, so for this one example `{4, 27}`.
+
+The loss function then gathers the networks predicted probability by looking up the index of the following character for each row in the predictions. This means the loss can be calculated for as many examples in one calculation.
+
+```elixir
+defmodule Loss do
+  def negative_log_likelihood(expected_outputs, probabilities) do
+    indicies =
+      [Nx.iota(Nx.shape(expected_outputs)), expected_outputs]
+      |> Nx.stack(axis: 1)
+
+    Nx.gather(probabilities, indicies)
+    |> Nx.log()
+    |> Nx.mean()
+    |> Nx.abs()
+  end
+
+  def negative_log_likelihood({expected_outputs, probabilities}) do
+    negative_log_likelihood(expected_outputs, probabilities)
+  end
+end
+
+Loss.negative_log_likelihood(outputs, untrained_network_probabilites)
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+#Nx.Tensor<
+  f32
+  EXLA.Backend<host:0, 0.1565027411.2003435536.251870>
+  3.534393072128296
+>
+```
+
+## Training the network
+
+Bringing all of this together into a single module, a model can be initialised with random weights, used to created the probabilities for a given input (or set of inputs) and a training function to update the weights.
+
+`Nx`, like `PyTorch`, can automatically calculate the gradients for the intermediate values in a function. `Nx.Defn.value_and_grads/2` takes the input tensors to be used in the forward and backwards passes, and a function which accepts these args returning a tuple containing the loss and the gradients of all of the input tensors.
+
+The gradients of the weights are then used to updated the weights in the direction to reduce the loss by a passed in step size.
+
+```elixir
+defmodule SimpleNeuralNetwork do
+  def init(opts \\ []) do
+    seed = Keyword.get(opts, :seed, 42)
+    key = Nx.Random.key(seed)
+    {weights, _new_key} = Nx.Random.normal(key, shape: {27, 27})
+
+    weights
+  end
+  
+  def predict(inputs, weights) do
+    Nx.dot(inputs, weights)
+    |> Nx.exp()
+    |> then(&Nx.divide(&1, Nx.sum(&1, axes: [1], keep_axes: true)))
+  end
+
+  def train_weights(weights, inputs, expected_outputs, opts \\ []) do
+    {loss, {weight_grads, _input_grads, _output_grads}} =
+      Nx.Defn.value_and_grad({weights, inputs, expected_outputs},
+        fn {weights, inputs, outputs} ->
+          probabilites = predict(inputs, weights)
+          Loss.negative_log_likelihood(outputs, probabilites)
+        end
+      )
+
+    step_size = Keyword.get(opts, :step_size, 0.1)
+
+    updated_weights =
+      weight_grads
+      |> Nx.multiply(-step_size)
+      |> Nx.add(weights)
+
+    {loss, updated_weights}
+  end
+end
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+{:module, SimpleNeuralNetwork, <<70, 79, 82, 49, 0, 0, 16, ...>>, {:train_weights, 4}}
+```
+
+```elixir
+{inputs, outputs} = 
+  names
+  |> names_to_input_output_bigrams.()
+
+inputs = one_hot_encode.(inputs)
+init_weights = SimpleNeuralNetwork.init(seed: 2)
+
+probabilites = SimpleNeuralNetwork.predict(inputs, init_weights)
+initial_loss = Loss.negative_log_likelihood(outputs, probabilites)
+
+IO.write("Initial loss: #{Nx.to_number(initial_loss)}\n")
+
+step_size = 10
+
+trained_weights =
+  Enum.reduce(1..100, init_weights, fn i, weights ->
+    {loss, updated_weights} =
+      SimpleNeuralNetwork.train_weights(weights, inputs, outputs, step_size: 50)
+
+    IO.write("Iteration #{i}: current loss: #{Nx.to_number(loss)}\r")
+
+    updated_weights
+  end)
+
+probabilites = SimpleNeuralNetwork.predict(inputs, trained_weights)
+initial_loss = Loss.negative_log_likelihood(outputs, probabilites)
+
+IO.write("\nFinal loss: #{Nx.to_number(initial_loss)}\n")
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+Initial loss: 3.782604694366455
+Iteration 100: current loss: 2.4725542068481445
+Final loss: 2.4723408222198486
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+:ok
+```
+
+What's interesting is the loss from the simple neural network equals the loss achieved with the simple bigram model based just on counts of the occurances of each bigram. This intuitavely makes sense when looking at the result of the dot product of the inputs and the weights.
+
+Since the inputs are one hot encoded only one of the 27 neurons in the weights will be multipled by 1, while the rest are multipled by zero so effectively cancelled out. This is another way of describing selecting one row from 27, the same as the simple model.
+
+The training then adjusts the weights to approximately match the probabilites from the counts model.
+
+These resulting probabilities can be passed into the sampling model to produce results that appear quite similar to the results from the previous model.
+
+```elixir
+simple_prob_model_names =
+  for i <- 0..10 do
+    SimpleProbabilityModel.sample(
+      0,
+      "",
+      probabilites,
+      Nx.Random.key(i)
+    )
+    |> String.trim_trailing(".")
+  end
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+["trejo", "stras", "kieniapeiarqer", "k", "ci", "baemlaltrlana", "sciiyalja", "u", "knwiiejenareak",
+ "lsnaltqstrteb", "ca"]
 ```
