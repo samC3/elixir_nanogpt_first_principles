@@ -12,25 +12,23 @@ Mix.install([
 
 ## Introduction
 
-Neural networks are these seeminly magically processes that can be applied to a huge array of problems and achieve a passable result. It raises the question though, how do they actually work? What are the fundamentals that we need to understand so that we can build up our knowledge from first principles to then comprehend how more complicated architectures like LLMs work.
+This livebook is a recreation of [Andrej Karpathy's Micrograd](https://www.youtube.com/watch?v=VMj-3S1tku0) rewritten using functional programming and the Elixir programming language. The goal is to build up knowledge about neural networks from first principles before moving into the more complicated architecutres of how large language models works.
 
-In this livebook we will build a neural network from scratch using Elixir, a functional programming language, following along the [brilliant video by Andrej Karpathy](https://www.youtube.com/watch?v=VMj-3S1tku0) where he creates micrograd from scratch in Python. Full credit goes to him for creating the material.
+## What is being built
 
-## What are we building
+Neural networks essentially boil down to a mathematical calculation with a huge number of values that are adjusted based on the training data provided. Once trained, new values similar to the training data are passed as input and are run through the same calculation to produce the networks answer for what it determines is approximately correct.
 
-Neural networks able to approximate functions by adjusting the paramaters in the network based on training data.
-
-As a contrived example, we can approximate the result of this mathematical function by giving a small network the input $x$ and result values to learn from.
+As a contrived example, the result of this function can be approximated by giving a small network the input $x$ and result values to learn from.
 
 $$
 sin(4x) * cos(5x)
 $$
 
-We can see an illustration where the network is begins randomly guessing values for $x$ but over time improves it's answer and gets closer and closer to the actual result. (Note: this is example is "overfitting" the training data, which is something to be avoided in a real example).
+This illustration shows where the network begins randomly guessing values for $x$ but over time improves it's answer and gets closer and closer to the actual result. (Note: this example is "overfitting" the training data, which is something to be avoided in a real example).
 
 <img src="files/training_demo_1.gif" alt="A small neural network being trained to approximate the sin(4x) * cos(5x) function" width="500" />
 
-There are all kinds of libraries (e.g. TensorFlow, PyTorch, Nx, Axon) that give us the tools to build and scale these networks. But if we want to understand them from first principles so that we can have an intuitive sense of what is going on, we don't need to reach for tensors and linear algebra right away. We can build a functional neural network using just straight foward Elixir.
+There are all kinds of libraries (e.g. TensorFlow, PyTorch, Nx, Axon) that provide the tools to build and scale these networks. But to understand them from first principles to gain an intuitive sense of what is going on, tensors and linear algebra are not required right away. A functional neural network can be built using just straight foward Elixir.
 
 ### A functional approach
 
@@ -38,11 +36,11 @@ This Livebook departs in the implementation to demostrate how a neural network c
 
 ## Step 1: A computational graph
 
-The great news is the mathematical concepts and formulas we need to understand can be built up from high school level math. Primarily we need basic arthimatic, and certain parts of calculus.
+The great news is the mathematical concepts and formulas needed to understand can be built up from high school level math. Basic arthimatic and certain parts of calculus are the fundamental building blocks of a neural network.
 
-We can think of a neural network as a computational graph which takes a list of numbers and handles the various mathematical operations to produce a list of numbers as an output.
+Neural network can be thought of as a computational graph which takes a list of numbers and handles the various mathematical operations to produce a list of numbers as an output.
 
-For example, say we wanted to show $2 \times 3 = 6$ as a simple computational graph it would look like this, where it takes in a list containing `2` and `3` as inputs, and produces the output of `6`.
+For example, to show $2 \times 3 = 6$ as a simple computational graph it would look like this, where it takes in a list containing `2` and `3` as inputs, and produces the output of `6`.
 
 ```mermaid
 ---
@@ -56,7 +54,7 @@ flowchart LR
 multiply --> 6
 ```
 
-In Elixir we can complete mathematical operations in the language as with simple code
+Elixir can complete mathematical operations in the language with simple code built into the main library.
 
 ```elixir
 2 * 3
@@ -68,7 +66,7 @@ In Elixir we can complete mathematical operations in the language as with simple
 6
 ```
 
-Instead of working with raw numbers (integers and floats) we will instead wrap those in a `%Value{}` [struct](https://hexdocs.pm/elixir/structs.html). This will allow us to store the intermediary values to keep track of the calculation we are running.
+Instead of working with raw numbers (integers and floats), the values will be wrapped in a `%Value{}` [struct](https://hexdocs.pm/elixir/structs.html). This will allow them to store the intermediary values to keep track of the calculation being run.
 
 The `Value` will hold information about a number in the computational graph:
 
@@ -78,7 +76,7 @@ The `Value` will hold information about a number in the computational graph:
 * `label`: used to store the name of the variable to be rendered in the Mermaid diagram
 * `id`: used when creating the Mermaid diagram
 
-We define a struct with the `defstruct` construct which lists the fields. All we really _need_ to define is:
+A struct is defined with the `defstruct` construct which lists the fields. All that is really _needed_ to define is:
 
 <!-- livebook:{"force_markdown":true} -->
 
@@ -88,9 +86,9 @@ defmodule Value do
 end
 ```
 
-However we don't want to be concerned about creating the value for `id` for the diagrams as we move further into the livebook so we'll include a `new/2` function as well.
+However, the implementation does not want to be concerned about creating the value for `id` for the diagrams as more complexity is defined in the livebook so a `new/2` function is included.
 
-If you've been following along with Andrej Karpathy's course you may have noticed the `grad` field is missing from `Value`. This has been intentionally left out since we'll be taking a slightly different implementation with functional programming, which will be explained in more detail further along.
+It should be noted that Andrej Karpathy's python version incluides a `grad` field on the `Value` class. This has been intentionally left out since this version is taking a slightly different implementation with functional programming, which will be explained in more detail further along.
 
 ```elixir
 defmodule Value do
@@ -116,7 +114,7 @@ Value.new(2.0, "x")
 %Value{data: 2.0, op: nil, label: "x", id: 1, children: []}
 ```
 
-Given these values we can start to make a computational graph like the one we've drawn:
+Given this data structure a computational graph can be made to match the diagram above:
 
 ```elixir
 two = Value.new(2.0, "two")
@@ -140,9 +138,9 @@ Value.new(two.data * three.data, "six", [two, three])
 }
 ```
 
-We also need a way to perform operations on the values so can build up mathimatical functions with our new date model.
+Since the underlying mathematical functions will not work with the `Value` data structure an additional module is required perform operations on the values so mathimatical functions can be built with this new data model.
 
-We'll create a `Math` module to implement the operations that we will need. You'll notice the `data` field is created using the usual Elixir/Erlang functions to create the values and the rest of the function is building up the metadata for us to use later.
+The `Math` module implements the operations required to construct new `Value` structures from existing values. The `data` field is created using the usual Elixir/Erlang functions to calculate the values and the rest of the function is building up the metadata to be used in inspecting the computational graph.
 
 ```elixir
 defmodule Math do
@@ -219,7 +217,7 @@ Math.mul(two, three, "six")
 }
 ```
 
-With the `Math` module we can now create mathematical expressions which we can use to view the computational graphs. What we want to produce programmtically is this with the values of each filled in, and further along the gradients as well.
+With the `Math` module mathematical expressions can be created which can be used to view the computational graphs. An additional module is required produce programmtically these mermaid diagrams with the values of each filled in, and further along the gradients as well.
 
 ```mermaid
 ---
@@ -267,11 +265,11 @@ result = Math.mul(x, y, "x*y") |> Math.add(z, "result")
 }
 ```
 
-Here we can see the final result of the $x \times y + z$ function is `10`, and we can see all of the intermediate values along the way right back to the intital values.
+This Value struct shows the final result of the $x \times y + z$ function is `10`, storing all of the intermediate values along the way right back to the intital values.
 
-But this is already not that nice to read and these expressions will only become more complicated, so we will also need a `Mermaid` module to visualize the computational graph in an easier way.
+The `Mermaid` module provides a function to visualize the computational graph in an easier way.
 
-Note: it's not essential to understand this module so feel free to skip over. Also worth noting that this approach will stop working once our computational graphs become sufficiently complicated, but at that stage a full graphic may begin to loses its value.
+Note: it's not essential to understand this module so feel free to skip over. Also worth noting that this approach will stop working once the computational graphs become sufficiently complicated, but at that stage a full graphic may begin to lose its value.
 
 ```elixir
 defmodule Mermaid do
@@ -324,7 +322,7 @@ end
 {:module, Mermaid, <<70, 79, 82, 49, 0, 0, 18, ...>>, {:value_node, 2}}
 ```
 
-With this we can now view our result `Value` from before and see the full computational graph. We will fill in the `grad` field in the graph in the next section.
+The `grad` field will be populated in the next section.
 
 ```elixir
 Mermaid.render_value(result)
@@ -365,43 +363,39 @@ grad: 0.0]
 
 ```
 
-We can use the computational graph to move forwards through the calculation, but we also want to be able to move backwards and determine the gradient for each value.
+The computational graph shows the calculation as values are passed forwards through the calculation, but in order to train a neural network there needs to be a mechanism to traverse backwards through the calculation and determine the impact of each individual value so that training can occur.
+
+A brief step into calculus is needed to continue the journey of first principles understanding before working through backpropagation and training.
 
 ## Calculus
 
-In order to train neural networks we need to understand the impact of various parts of the calculation so that we can then adjust them accordingly.
-
-The two best sources I found on building an understanding of calculus are:
+Note: Two useful sources for building an understanding of calculus are:
 
 1. **The essence of calculus** series on youtube by 3Blue1Brown, and
 2. **Calculus Made Easy** by Silvanus P. Thompson, first published in 1910 (free pdf copies can be found online)
 
-This quote from *Calculus made easy* explains the first part of what we are looking to get from calculus:
+This quote from *Calculus made easy* explains the first part of what is needed from calculus:
 
 > $d$ which merely means “a little bit of.”
 > Thus $dx$ means a little bit of $x$; or $du$ means a little bit of $u$. Ordinary mathematicians think it more polite to say “an element of,”
 > instead of “a little bit of.” Just as you please. But you will find that
 > these little bits (or elements) may be considered to be indefinitely small.
 
-So we want to look at our calculations and observe what happens when we nudge them by just a little bit. The second part we want to consider is highlighted in this quote:
+This is need with the calculations created here, observing what happens when the values are nudged by just a little bit. The second part is highlighted in this quote:
 
 > Moreover, we are usually dealing with more than one variable at once, and thinking of the way in which one variable depends on the other: ... Or we are asked to consider a rectangle of given area, and to enquire how any increase in the length of it will compel a corresponding decrease in the breadth of it. Or we think of the way in which any variation in the slope of a ladder will cause the height that it reaches, to vary.
 > 
 > Suppose we have got two such variables that depend one on the other. An alteration in one will bring about an alteration in the other, because of this dependence.
 
-So with this we can think:
+Given the computational graphs with multiple variable that are dependent on each other, if $x$ increases in value, then, with the small parts to be measured that change the occurs to the overall equation. (A detour to the essence of calculus is highly recommended).
 
-1. We have a computational graph with multiple variable that are dependent on each other, if $x$ increases in value,
-
-Then, with the small parts we want to measure that change the occurs to the overall equation. (Here I would highly recommend a detour to the essence of calculus.)
-
-When building neural networks we don't go through the full process of deriving the derivative since it would be an expression with tens of thousands of terms. Instead, we just want an understanding of that the derivative is, and why it's useful in the context of building these networks.
+When building neural networks it isn't realistic to go through the full process of deriving the derivative since it would be an expression with tens of thousands of terms. Instead, an understanding of that the derivative is, and why it's useful in the context of building these networks.
 
 ### A single variable function
 
-Lets start with a simple parabola $y = x^2$. What happens to $y$ if we adjusted $x$ by just a tiny amount?
+Starting with a simple parabola $y = x^2$, what happens to $y$ if $x$ is adjusted by just a tiny amount?
 
-First we can define the function `fn x -> x**2 end` that we can use to calculate the value for `y`
+First, define the function `fn x -> x**2 end` that can be used to calculate the value for `y`
 
 ```elixir
 f = fn x -> x**2 end
@@ -433,9 +427,9 @@ Tucan.lineplot(xs, "x", "y")
 {"$schema":"https://vega.github.io/schema/vega-lite/v5.json","__tucan__":{"types":{"type":"nominal","x":"quantitative","y":"quantitative"}},"data":{"values":[{"type":"curve","x":-10,"y":100},{"type":"curve","x":-9,"y":81},{"type":"curve","x":-8,"y":64},{"type":"curve","x":-7,"y":49},{"type":"curve","x":-6,"y":36},{"type":"curve","x":-5,"y":25},{"type":"curve","x":-4,"y":16},{"type":"curve","x":-3,"y":9},{"type":"curve","x":-2,"y":4},{"type":"curve","x":-1,"y":1},{"type":"curve","x":0,"y":0},{"type":"curve","x":1,"y":1},{"type":"curve","x":2,"y":4},{"type":"curve","x":3,"y":9},{"type":"curve","x":4,"y":16},{"type":"curve","x":5,"y":25},{"type":"curve","x":6,"y":36},{"type":"curve","x":7,"y":49},{"type":"curve","x":8,"y":64},{"type":"curve","x":9,"y":81},{"type":"curve","x":10,"y":100}]},"encoding":{"x":{"field":"x","type":"quantitative"},"y":{"field":"y","type":"quantitative"}},"mark":{"fillOpacity":1,"type":"line"}}
 ```
 
-We can then look to find the derivative by looking at the gradient of the slope an any point along this graph. This is commonly referred to as the _"instantanous rate of change"_, but as Grant points out in the Essence of Calculus, this is a paradox. Can something change is we look at it as a snapshot in single moment of time?
+The derivative can be found by looking at the gradient of the slope an any point along this graph. This is commonly referred to as the _"instantanous rate of change"_, but as Grant points out in the Essence of Calculus, this is a paradox. Can something change when looking at it as a snapshot in single moment of time?
 
-It's more helpful to think of this is how much does it change by between two very very close points in time. Or in this example, how much it change if we made $x$ just a tiny little bit bigger, say by `0.000001`.
+It's more helpful to think of this is how much does it change by between two very very close points in time. Or in this example, how much it change if $x$ is made just a tiny little bit bigger, say by `0.000001`.
 
 That is is what this defintion form wikipedia is saying, as $h$ gets closer and closer to zero what is the impact on the output.
 
@@ -443,7 +437,7 @@ $$
 \lim_{h \to 0} \frac{f(x + h) - f(x)}{h}
 $$
 
-Which we can write out as:
+This can be written out as:
 
 ```elixir
 h = 0.000001
@@ -458,9 +452,9 @@ x = 3
 6.000001000927568
 ```
 
-Here we can see that when $x = 3$ the _"rate of change"_, or _"gradient"_ of the function when the value is nudged just a little bit it approximately $6$.
+This shows that when $x = 3$ the _"rate of change"_, or _"gradient"_ of the function when the value is nudged just a little bit it approximately $6$.
 
-If we put that formula into a function and then look at different values of $x$ we can see how the gradient changes for large and smaller values.
+Putting that formula into a function and then looking at different values of $x$ shows how the gradient changes for large and smaller values.
 
 ```elixir
 calc_grad = fn x, h -> (f.(x + h) - f.(x)) / h end
@@ -491,15 +485,15 @@ end)
 {"$schema":"https://vega.github.io/schema/vega-lite/v5.json","hconcat":[{"__tucan__":{"types":{"type":"nominal","x":"quantitative","y":"quantitative"}},"data":{"values":[{"type":"curve","x":-10,"y":100},{"type":"curve","x":-9,"y":81},{"type":"curve","x":-8,"y":64},{"type":"curve","x":-7,"y":49},{"type":"curve","x":-6,"y":36},{"type":"curve","x":-5,"y":25},{"type":"curve","x":-4,"y":16},{"type":"curve","x":-3,"y":9},{"type":"curve","x":-2,"y":4},{"type":"curve","x":-1,"y":1},{"type":"curve","x":0,"y":0},{"type":"curve","x":1,"y":1},{"type":"curve","x":2,"y":4},{"type":"curve","x":3,"y":9},{"type":"curve","x":4,"y":16},{"type":"curve","x":5,"y":25},{"type":"curve","x":6,"y":36},{"type":"curve","x":7,"y":49},{"type":"curve","x":8,"y":64},{"type":"curve","x":9,"y":81},{"type":"curve","x":10,"y":100},{"type":"tangent","x":0,"y":-4.000002001296025},{"type":"tangent","x":1,"y":-1.000648012450256e-6},{"type":"tangent","x":2,"y":4.0},{"type":"tangent","x":3,"y":8.000001000648012},{"type":"tangent","x":4,"y":12.000002001296025}]},"encoding":{"color":{"field":"type"},"x":{"field":"x","type":"quantitative"},"y":{"field":"y","type":"quantitative"}},"mark":{"fillOpacity":1,"type":"line"},"title":"grad is 4.0 when x is 2"},{"__tucan__":{"types":{"type":"nominal","x":"quantitative","y":"quantitative"}},"data":{"values":[{"type":"curve","x":-10,"y":100},{"type":"curve","x":-9,"y":81},{"type":"curve","x":-8,"y":64},{"type":"curve","x":-7,"y":49},{"type":"curve","x":-6,"y":36},{"type":"curve","x":-5,"y":25},{"type":"curve","x":-4,"y":16},{"type":"curve","x":-3,"y":9},{"type":"curve","x":-2,"y":4},{"type":"curve","x":-1,"y":1},{"type":"curve","x":0,"y":0},{"type":"curve","x":1,"y":1},{"type":"curve","x":2,"y":4},{"type":"curve","x":3,"y":9},{"type":"curve","x":4,"y":16},{"type":"curve","x":5,"y":25},{"type":"curve","x":6,"y":36},{"type":"curve","x":7,"y":49},{"type":"curve","x":8,"y":64},{"type":"curve","x":9,"y":81},{"type":"curve","x":10,"y":100},{"type":"tangent","x":-1.6,"y":-1.4400019999462543},{"type":"tangent","x":-0.6,"y":-0.6400009999731272},{"type":"tangent","x":0.4,"y":0.16000000000000003},{"type":"tangent","x":1.4,"y":0.9600009999731272},{"type":"tangent","x":2.4,"y":1.7600019999462546}]},"encoding":{"color":{"field":"type"},"x":{"field":"x","type":"quantitative"},"y":{"field":"y","type":"quantitative"}},"mark":{"fillOpacity":1,"type":"line"},"title":"grad is 0.8 when x is 0.4"},{"__tucan__":{"types":{"type":"nominal","x":"quantitative","y":"quantitative"}},"data":{"values":[{"type":"curve","x":-10,"y":100},{"type":"curve","x":-9,"y":81},{"type":"curve","x":-8,"y":64},{"type":"curve","x":-7,"y":49},{"type":"curve","x":-6,"y":36},{"type":"curve","x":-5,"y":25},{"type":"curve","x":-4,"y":16},{"type":"curve","x":-3,"y":9},{"type":"curve","x":-2,"y":4},{"type":"curve","x":-1,"y":1},{"type":"curve","x":0,"y":0},{"type":"curve","x":1,"y":1},{"type":"curve","x":2,"y":4},{"type":"curve","x":3,"y":9},{"type":"curve","x":4,"y":16},{"type":"curve","x":5,"y":25},{"type":"curve","x":6,"y":36},{"type":"curve","x":7,"y":49},{"type":"curve","x":8,"y":64},{"type":"curve","x":9,"y":81},{"type":"curve","x":10,"y":100},{"type":"tangent","x":-5,"y":20.999998001499534},{"type":"tangent","x":-4,"y":14.999999000749767},{"type":"tangent","x":-3,"y":9.0},{"type":"tangent","x":-2,"y":3.000000999250233},{"type":"tangent","x":-1,"y":-2.9999980014995344}]},"encoding":{"color":{"field":"type"},"x":{"field":"x","type":"quantitative"},"y":{"field":"y","type":"quantitative"}},"mark":{"fillOpacity":1,"type":"line"},"title":"grad is -6.0 when x is -3"}]}
 ```
 
-Here we can see the gradient rendered as a slope on the parabola to visualize the "steepness", i.e. the higher rate of change as $x$ grows larger. Notice that we get a negative slope when $x$ is a negative value.
+This renders the gradient as a slope on the parabola to visualize the "steepness", i.e. the higher rate of change as $x$ grows larger. Notice that there is a negative slope when $x$ is a negative value.
 
 <!-- livebook:{"break_markdown":true} -->
 
 ### Multi variable functions
 
-Say we have a calcualtion that takes three variables instead of one, e.g. $x \times y + z$ we now want to know what happens when $x$, $y$ or $z$ are adjusted just a small amount and how that impacts the result.
+Consider a calcualtion that takes three variables instead of one, e.g. $x \times y + z$. The aim is to know what happens when $x$, $y$ or $z$ are adjusted just a small amount and how that impacts the result.
 
-Lets create a function so we can calculate the result:
+A function can be created to calculate the result:
 
 ```elixir
 x = 8
@@ -517,7 +511,7 @@ f.(x, y, z)
 84
 ```
 
-Now we can increase each variable separately using the same approach above to see the resulting gradient.
+Each variable can now be increased separately using the same approach above to see the resulting gradient.
 
 ```elixir
 h = 0.000000001
@@ -547,14 +541,14 @@ gradient of z: 1.0000036354540498
 :ok
 ```
 
-We can make some interesting observations about the results of these gradients:
+Some interesting observations about the results of these gradients:
 
 1. The gradient of $z$ is always close to 1 no matter the value
 2. The gradient of $x$ is approximately the value $y$, and vice-versa
 
 #### Addition rule
 
-We can prove this result algebraically. If we have this simple equation where we want to find the derivative of $c$ with respect to $b$, usually written as $\frac{dc}{db}$
+This result can be proved algebraically. Take this simple equation where the goal is to find the derivative of $c$ with respect to $b$, usually written as $\frac{dc}{db}$
 
 $$
 c = a + b
@@ -566,13 +560,13 @@ $$
 c + dc = a + b + db 
 $$
 
-Our goal is to find the value $\frac{dc}{db}$ so we need to remove the unnesseary values. Since we know $c$ is equal to $a + b$ we can subtract $c$ from the left hand side and $a + b$ from the right hand side to simplify the calculation, which leaves us with:
+The goal is to find the value $\frac{dc}{db}$ so the unnesseary values need to be removed. Since $c$ is equal to $a + b$ it is possible to subtract $c$ from the left hand side and $a + b$ from the right hand side to simplify the calculation, which leaves:
 
 $$
 dc = db
 $$
 
-We then divide both sides by $db$ to arrive at our answer for $\frac{dc}{db}$, which will be one given $db$ divided by itself is equal to one
+Dividing both sides by $db$ arrives at the answer for $\frac{dc}{db}$, which will be one given $db$ divided by itself is equal to one
 
 $$
 \frac{dc}{db} = 1
@@ -580,77 +574,77 @@ $$
 
 #### Product rule
 
-If we have the same equation but multiplied instead we can prove how the gradient of one variable will be the value of the other. To solve for $\frac{dc}{db}$ for this equation:
+If the same equation is multiplied instead it can be proved how the gradient of one variable will be the value of the other. To solve for $\frac{dc}{db}$ for this equation:
 
 $$
 c = a \times b
 $$
 
-We add the small amounts for $b$ and $c$
+The small amounts for $b$ and $c$ are added
 
 $$
 c + dc = a \times b + db
 $$
 
-Again, we subtract the original $c = a \times b$ from each side to leave us with:
+Again, subtracting the original $c = a \times b$ from each side leaves:
 
 $$
 dc = a \times db
 $$
 
-Dividing each side by $db$ we get:
+Dividing each side by $db$ results in:
 
 $$
 \frac{dc}{db} = a
 $$
 
-If we repeated the process by solving for $\frac{dc}{da}$ we would find that returns $b$ as the result, proving the product rule.
+Repeating the process by solving for $\frac{dc}{da}$ would find that returns $b$ as the result, proving the product rule.
 
 #### Power rule
 
-We can prove the derivative for an exponent following the same process algebraically. Starting with:
+The derivative for an exponent can be proved following the same process algebraically. Starting with:
 
 $$
 b = a^2
 $$
 
-We add a small amount to $a$ and the correseponding change to $b$
+A small amount is added to $a$ and the correseponding change to $b$
 
 $$
 b + db = (a + da)^2
 $$
 
-Expanding this out we can look at the sqaure of the $a + da$ as it multiplying by itself.
+Expanding this out looks at the sqaure of the $a + da$ as it multiplying by itself.
 
 $$
 b + db = (a + da) \times (a + da)
 $$
 
-Which we can expand with the binomial therom:
+Which can be expanded with the binomial therom:
 
 $$
 b + db = a^2 + (2 \times a \times da) + da^2
 $$
 
-At this point we can ignore $da^2$ since a small, almost zero number multiplied by itself becomes an even smaller number. So its impact on the overall equation is negligable.
+At this point it is reasonable to ignore $da^2$ since a small, almost zero number multiplied by itself becomes an even smaller number. So its impact on the overall equation is negligable.
 
 $$
 b + db = a^2 + (2 \times a \times da)
 $$
 
-We then subtract the original equation
+Subtract the original equation
 
 $$
 db = 2 \times a \times da
 $$
 
-And finally divide both sides by $da$ to get the result of $\frac{dc}{da}$
+Finally divide both sides by $da$ to get the result of $\frac{dc}{da}$
 
 $$
 \frac{db}{da} = 2a
 $$
 
-If we did the same process for $b = a^3$ we would find the result to $\frac{dc}{da} = 3a^2$.
+Repeating the same process for $b = a^3$ would find the result to $\frac{dc}{da} = 3a^2$.
 
 The pattern here is the derivative of $a^n$ will be $na^{n-1}$
 
@@ -658,7 +652,7 @@ The pattern here is the derivative of $a^n$ will be $na^{n-1}$
 
 #### Chain rule
 
-_Calculus Made Easy_ describes the chain rule as "a useful dodge" which is perfect for what we need. It allows us to easily find the rate of change between different values in a complicated function.
+_Calculus Made Easy_ describes the chain rule as "a useful dodge" which is perfect for this use case. It allows the rate of change between different values in a complicated function to be found easily.
 
 The chain rule is simply this:
 
@@ -678,13 +672,13 @@ Wikipedia has a useful explanation:
 
 [Wikipedia Chain Rule](https://en.wikipedia.org/wiki/Chain_rule)
 
-Thinking of it in programmatically, we know that our equation $x \times y + z$ could also be written as: `Math.add(Math.mul(x, y), z)`.
+Programmatically, the equation $x \times y + z$ could also be written as: `Math.add(Math.mul(x, y), z)`.
 
 <!-- livebook:{"break_markdown":true} -->
 
-With this knowledge we can now create a `Grad` module that takes in a `Value` and determines the gradients of it's children, i.e. the values that created the one passed in.
+With this knowledge a `Grad` module can now be created that takes in a `Value` and determines the gradients of it's children, i.e. the values that created the one passed in.
 
-So for example if we had this simplifed value:
+For example with this simplifed value:
 
 <!-- livebook:{"force_markdown":true} -->
 
@@ -708,13 +702,13 @@ The `Grad` module can automatically determine the gradients of each child and re
 [{1, 10}, {2, 5}]
 ```
 
-Note: the use of the term children here can be confusing since really, these are the parent values that created the Value being passed in. I believe Andrej will have used the term children since the final value of the calculation is effectively the root node in the graph, and the previous values branch away as it's child nodes. I've left the name the same here to make it easier to compare back to the original micrograd library.
+Note: the use of the term children here can be confusing since really, these are the parent values that created the Value being passed in. Andrej used the term children since the final value of the calculation is effectively the root node in the graph, and the previous values branch away as its child nodes. The name is left the same here to make it easier to compare back to the original micrograd library.
 
 ```elixir
 defmodule Grad do
   # As shown above the gradient from addition results in 1. Then given the
-  # chain rule we multiply the gradients coming from the parent to
-  # become value_grad * 1. So we're just passing through the gradient
+  # chain rule the gradients coming from the parent are multiplied to
+  # become value_grad * 1. This just passes through the gradient
   # from the upstream value to the children.
   def calculate(%Value{op: :add, children: [left, right]}, value_grad) do
     [
@@ -729,7 +723,7 @@ defmodule Grad do
   end
 
   # As the product rule above proved the gradient of each child is the 
-  # value of the other child. Then for the chain rule we multiply by
+  # value of the other child. Then for the chain rule this is multiplied by
   # the value gradient to get the final gradient value for each child.
   def calculate(%Value{op: :mul, children: [left, right]}, value_grad) do
     [
@@ -738,15 +732,15 @@ defmodule Grad do
     ]
   end
 
-  # This is power rule described above then multiplied by the value_grad
+  # This is the power rule described above then multiplied by the value_grad
   def calculate(%Value{op: :pow, children: [child, exp]}, value_grad) do
     [
       {child.id, (exp.data * child.data ** (exp.data - 1)) * value_grad}
     ]
   end
 
-  # For the sake of brevity I haven't included the quotient rule or the working
-  # for tanh, but wikipedia has a good write to explain the process.
+  # For the sake of brevity the quotient rule and the working
+  # for tanh are omitted, but wikipedia has a good write to explain the process.
   def calculate(%Value{op: :tanh, children: [child], data: data}, value_grad) do
     [
       {child.id, (1 - data ** 2) * value_grad}
@@ -770,7 +764,7 @@ end
 {:module, Grad, <<70, 79, 82, 49, 0, 0, 25, ...>>, {:calculate, 2}}
 ```
 
-We can now use this to calculate the gradients for our example above:
+This can now be used to calculate the gradients for the example above:
 
 ```elixir
 left = Value.new(10.0, "left")
@@ -789,11 +783,11 @@ Grad.calculate(result, 1.0)
 
 ## Backpropagation
 
-This here is one major departure from the original implementation of Micrograd. In python we can add a backward function on the instance of the `Value` class and then call it to determine the gradients, then updating the state on the instances to keep track of the gradient.
+This here is one major departure from the original implementation of Micrograd. In python the backward function can be added on the instance of the `Value` class and then called to determine the gradients, then updating the state on the instances to keep track of the gradient.
 
-Given our functional approach we don't have the ability to mutate the data. Our `Value` "instances" are just immutable key-value maps underneath which we can't modify. While we could create a new value with the gradient set, it wouldn't work when we're updating the gradient on a deeply nested child in the large computational graphs we are going to be building.
+Given the functional approach there isn't the ability to mutate the data. The `Value` "instances" are just immutable key-value maps underneath which can't be modified. While a new value could be created with the gradient set, it wouldn't work when updating the gradient on a deeply nested child in the large computational graphs that will be built.
 
-Instead, we'll take a more common functional approach and keep a separate data structure where we can lookup the gradient for any value by its `id`.
+Instead, this takes a more common functional approach and keeps a separate data structure where the gradient for any value can be looked up by its `id`.
 
 ```elixir
 defmodule Backward do
@@ -854,7 +848,7 @@ grad_map = Backward.compute_gradients(result)
 %{11 => 5.0, 12 => 10.0, 13 => 1.0}
 ```
 
-Now that we have the gradients for each of the values we can pass that to `Mermaid.render_value/2` as the second arguement so we can view the gradients in our diagram as well.
+With the gradients for each of the values available they can be passed to `Mermaid.render_value/2` as the second arguement so the gradients can be viewed in the diagram as well.
 
 ```elixir
 Mermaid.render_value(result, grad_map)
@@ -887,15 +881,15 @@ grad: 1.0]
 
 ## A single neuron
 
-If we zoom into a neural network to look at a single neuron we can see they are at conceptually model on a biological neuron. There are many inputs coming from elsewhere in the network and the result of this neuron is passed onwards to others to act as an input there.
+Zooming into a neural network to look at a single neuron shows they are conceptually modeled on a biological neuron. There are many inputs coming from elsewhere in the network and the result of this neuron is passed onwards to others to act as an input there.
 
-So when modelling a single neuron (also called a perceptron) we need to take in multiple values, and return a value as the result.
+So when modelling a single neuron (also called a perceptron) it needs to take in multiple values, and return a value as the result.
 
-The learning part of our network then comes from the parameters that are used to calculate the result. Each of the inputs coming into the network have an associated `weight` which is multiplied by. Then we take the results of all of the inputs that have been multiplied by their respective weights and sum them together. This result then has a `bias` added to it before being passed to an `activation` function (e.g. `tanh` or `relu`).
+The learning part of the network then comes from the parameters that are used to calculate the result. Each of the inputs coming into the network have an associated `weight` which is multiplied by. Then the results of all of the inputs that have been multiplied by their respective weights are summed together. This result then has a `bias` added to it before being passed to an `activation` function (e.g. `tanh` or `relu`).
 
 The result of the activation function is the output of this single neuron.
 
-For a simple example that has two inputs, we want to build a computational graph that looks like this:
+For a simple example that has two inputs, the goal is to build a computational graph that looks like this:
 
 ```mermaid
 ---
@@ -934,7 +928,7 @@ x2 = Value.new(0.0, "x2")
 w1 = Value.new(-3.0, "w1")
 w2 = Value.new(1.0, "w2")
 
-# This specific value is so we get nice gradients further on
+# This specific value is chosen to give nice gradients further on
 b = Value.new(6.8813735870195432, "b")
 
 x1w1 = Math.mul(x1, w1, "x1*w1")
@@ -1010,9 +1004,9 @@ grad: 0.0]
 
 ```
 
-Here we can see that if we pass the values `2` and `0` into the calculation as inputs we get approx. `0.7071` as a result. We can also see all of the intermediate values along the way.
+This shows that passing the values `2` and `0` into the calculation as inputs returns approx. `0.7071` as a result, with all of the intermediate values visible along the way.
 
-If we then pass the `output` `Value` struct (which contains all of the other `Value` structs created as children) into `Backward` we can create a new datastruct which holds the gradients of every `Value` in this graph. Passing that to our renderer shows us this update view.
+Passing the `output` `Value` struct (which contains all of the other `Value` structs created as children) into `Backward` creates a new datastruct which holds the gradients of every `Value` in this graph. Passing that to the renderer shows this updated view.
 
 ```elixir
 grad_map = Backward.compute_gradients(output)
@@ -1207,31 +1201,31 @@ grad: 1.0]
 
 ```
 
-The gradient of output is set to `1` and then the process of moving the gradient backwards through the graph happens. In the middle we see that the addition operations effectively work as a pass through sending the gradient back along through the computation.
+The gradient of output is set to `1` and then the process of moving the gradient backwards through the graph happens. In the middle the addition operations effectively work as a pass through sending the gradient back along through the computation.
 
-Then at the beginning the gradient of `w1` is the value of `x1` multiplied by the gradient `0.5` passed back. The same is true for `w2`.
+At the beginning the gradient of `w1` is the value of `x1` multiplied by the gradient `0.5` passed back. The same is true for `w2`.
 
 ### The neuron struct
 
-We can create another data structure to define a neuron that takes an arbitray number of inputs. We'll again define a struct to hold the weights, which is just a list of `Value`s and a bias, which is a single `Value`.
+Another data structure can be created to define a neuron that takes an arbitray number of inputs. This again defines a struct to hold the weights, which is just a list of `Value`s and a bias, which is a single `Value`.
 
-The weights and bias are commonly called the "parameters" of a neural network and will be the values that are adjusted as we train the network to produce the output we expect.
+The weights and bias are commonly called the "parameters" of a neural network and will be the values that are adjusted as the network is trained to produce the output expected.
 
-We'll create a `new` function on the module to handle setting up a neuron with the number of weights required to handle the inputs. The weights a bias are initialised with random numbers to begin with.
+A `new` function on the module handles setting up a neuron with the number of weights required to handle the inputs. The weights a bias are initialised with random numbers to begin with.
 
-The module contains two other fuctions we need to run and train the network.
+The module contains two other fuctions needed to run and train the network.
 
 #### call/2
 
-`call` takes the neuron struct and a list of `Value` as the input. These might be the inputs to the overall network or the outputs from other neurons in the network. Call then runs the same equation we did above to calculate the result of this single perceptron.
+`call` takes the neuron struct and a list of `Value` as the input. These might be the inputs to the overall network or the outputs from other neurons in the network. Call then runs the same equation shown above to calculate the result of this single perceptron.
 
 #### train/3
 
-This is at the core of how a neural network can "learn" to approximate any function. Here we have neuron struct being passed in which contains the parameters (weights and bias), the gradient map with the grads for every value in the calculation, and a step size.
+This is at the core of how a neural network can "learn" to approximate any function. Here there is a neuron struct being passed in which contains the parameters (weights and bias), the gradient map with the grads for every value in the calculation, and a step size.
 
-When we do a single training loop we take each of the parameters and lookup the gradient, which is it's impact on the rate of change of the overall equation with respect to the loss. We then multiply the loss by the negative step size and add that value from the parameter.
+In a single training loop each of the parameters is taken and the gradient is looked up, which is its impact on the rate of change of the overall equation with respect to the loss. The loss is then multiplied by the negative step size and that value is added to the parameter.
 
-We'll work through an example to show how this process leads to a result.
+An example shows how this process leads to a result.
 
 ```elixir
 defmodule Neuron do
@@ -1276,7 +1270,7 @@ defmodule Neuron do
   
   defp random_value() do
     # uniform/0 returns a value between 0 and 1, doubling
-    # and subtracting 1 gives us a value between -1 and 1
+    # and subtracting 1 gives a value between -1 and 1
     :rand.uniform() * 2 - 1
   end
 end
@@ -1308,7 +1302,7 @@ neuron = Neuron.new(2, seed: 1)
 
 A logicaly `NOT` gate just returns the inverse of what it is given, i.e. pass in `true` and it returns `false`, pass in `false` and it returns `true`.
 
-With our perceptron model
+With this perceptron model
 
 ```elixir
 neuron = Neuron.new(1, seed: 42)
@@ -1569,83 +1563,10 @@ Loss: 0.0038587265587271685
 neuron
 ```
 
-<!-- livebook:{"output":true} -->
-
-```
-%Neuron{
-  weights: [
-    %Value{data: 3.268692394832694, op: nil, label: "w1", id: 340, children: []},
-    %Value{data: 3.2686881147652467, op: nil, label: "w2", id: 341, children: []}
-  ],
-  bias: %Value{data: -4.947583416130867, op: nil, label: "b", id: 342, children: []}
-}
-```
-
 ```elixir
 neuron
 |> Neuron.call([Value.new(1), Value.new(1)])
 |> Mermaid.render_value()
 ```
 
-<!-- livebook:{"output":true} -->
-
-```mermaid
----
-config:
-  theme: base
----
-flowchart LR
-
- 
- 
- 
- 4784[
-data: 1
-grad: 0.0]
- --> 4784340mul[mul]
- 340[w1
-data: 3.268692394832694
-grad: 0.0]
- --> 4784340mul[mul]
-4784340mul[mul] --> 4786[.w1
-data: 3.268692394832694
-grad: 0.0]
-
- --> 47864787sum[sum]
- 
- 4785[
-data: 1
-grad: 0.0]
- --> 4785341mul[mul]
- 341[w2
-data: 3.2686881147652467
-grad: 0.0]
- --> 4785341mul[mul]
-4785341mul[mul] --> 4787[.w2
-data: 3.2686881147652467
-grad: 0.0]
-
- --> 47864787sum[sum]
-47864787sum[sum] --> 4788[x.w
-data: 6.5373805095979405
-grad: 0.0]
-
- --> 4788342add[add]
- 342[b
-data: -4.947583416130867
-grad: 0.0]
- --> 4788342add[add]
-4788342add[add] --> 4789[x.w+b
-data: 1.589797093467073
-grad: 0.0]
-
- --> 4789tanh[tanh]
-4789tanh[tanh] --> 4790[output
-data: 0.9201182155991248
-grad: 0.0]
-
-
-
-```
-
-The solution this neural network has arrived at is multiply each of the inputs by 3, sum them and subtract 5. Before being passed to `tanh` this leaves `1` for `1 and 1`, `-2` for `1 and 0` and `-5` for `0 and 0`. `tanh` will the squish these values down to close to `1` and `-1` giving us approximately the correct answer.
+The trained neural network ends up multiplying each of the inputs by 3, summing them and subtracting 5. Before being passed to `tanh` this leaves `1` for `1 and 1`, `-2` for `1 and 0` and `-5` for `0 and 0`. `tanh` then squishes these values down to close to `1` and `-1` giving approximately the correct answer.
