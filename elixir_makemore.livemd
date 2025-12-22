@@ -439,9 +439,9 @@ end
 
 A loss function is required to provide a numerical score for how well the model has performed based on the probabilities calculated from the training set.
 
-Log likelihood is commonly used to in cases such as this. It takes the `log` of the probabiliy of each bigram in the produced output, sums the result and normalised by dividing by the number of bigrams.
+Log likelihood is commonly used to in cases such as this. It takes the `log` of the probability of each bigram in the dataset, sums the result and normalised by dividing by the number of bigrams.
 
-It's called negative log likelihood as positive number is more commonly used to minimise when training more complicated models.
+It's called negative log likelihood as a positive number is more commonly used to minimise when training more complicated models. You can also compute this over generated names, but that is measuring sample quality rather than how well the model fits the data.
 
 ```elixir
 defmodule SimpleProbabilityLoss do
@@ -670,7 +670,7 @@ untrained_network_probabilites[1]
 >
 ```
 
-Taking the negative log of this gives the loss for this single example of `~3.1`. For reference the final model will have a loss under `1.0` so this is not great, but also expected from a random, untrained model.
+Taking the negative log of this gives the loss for this single example of `~3.1`. For reference the final model for this dataset typically lands in the low `2.x` range, so this is not great, but also expected from a random, untrained model.
 
 ```elixir
 untrained_network_probabilites[1][1]
@@ -826,11 +826,11 @@ Final loss: 2.667579412460327
 :ok
 ```
 
-What's interesting is the loss from the simple neural network equals the loss achieved with the simple bigram model based just on counts of the occurances of each bigram. This intuitavely makes sense when looking at the result of the dot product of the inputs and the weights.
+What's interesting is the simple neural network can match the loss achieved with the simple bigram model based just on counts of the occurances of each bigram when fully trained (and with the same smoothing). This intuitavely makes sense when looking at the result of the dot product of the inputs and the weights.
 
 Since the inputs are one hot encoded only one of the 27 neurons in the weights will be multipled by 1, while the rest are multipled by zero so effectively cancelled out. This is another way of describing selecting one row from 27, the same as the simple model.
 
-The training then adjusts the weights to approximately match the probabilites from the counts model.
+The training then adjusts the weights to approximately match the probabilites from the counts model (this run hasn't fully converged).
 
 These resulting probabilities can be passed into the sampling model to produce results that appear quite similar to the results from the previous model.
 
@@ -1115,13 +1115,13 @@ defmodule MLPModel do
 
     Enum.reduce(1..samples, {[], key}, fn _, {names, key} ->
       {name, key} = sample_next_char(params, key)
-  
+
       name =
         Nx.to_flat_list(name)
         |> BigramMapping.decode()
         |> Enum.join()
         |> String.trim(".")
-  
+
       {[name | names], key}
     end)
   end
@@ -1137,8 +1137,8 @@ defmodule MLPModel do
           batch_size: 1
         )
         |> Nx.exp()
-        |> then(&Nx.divide(&1, Nx.sum(&1, axes: [1], keep_axes: true)))  
-      
+        |> then(&Nx.divide(&1, Nx.sum(&1, axes: [1], keep_axes: true)))
+
       {next_char, key} = Nx.Random.choice(key, Nx.iota({27}), probs[0])
 
       sample_next_char(
@@ -1192,9 +1192,9 @@ init_params = MLPModel.new(seed: seed, block_size: block_size)
     {params, key, losses} ->
       {loss, updated_params, key} =
         MLPModel.train(params, train_inputs, train_targets, key)
-  
+
       IO.write("Iteration: #{i}, Current loss: #{Nx.to_number(loss)}\r")
-  
+
       {updated_params, key, [%{i: i, loss: Nx.to_number(loss)} | losses]}
   end
 
@@ -1266,7 +1266,7 @@ learning_rates = Nx.pow(10, learning_rate_exp)
           batch_size: 32,
           step_size: Nx.to_number(learning_rates[i])
         )
-  
+
       {
         updated_params,
         key,
@@ -1327,7 +1327,7 @@ epochs = [
               batch_size: batch_size
             )
         end
-    
+
       loss =
         MLPModel.loss(
           trained_params,
@@ -1336,7 +1336,7 @@ epochs = [
           batch_size: elem(Nx.shape(validation_targets), 0),
           input_size: input_size
         )
-      
+
       IO.write("\nLoss on validation data: \t\t #{Nx.to_number(loss)}\n\n")
 
       {trained_params, key}
@@ -1403,3 +1403,7 @@ avekoronnka
 ```
 :ok
 ```
+
+Train vs validation loss should be close if the model is not overfitting. A small gap is normal; a growing gap means the model is fitting the training names more than it generalises to unseen names. The test loss should only be checked once at the end.
+
+Scaling this model is mostly about capacity and optimisation. Increasing `embedding_size`, `hidden_weights_count`, and training steps usually improves loss up to a point.
